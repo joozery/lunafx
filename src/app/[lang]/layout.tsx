@@ -30,7 +30,9 @@ export default async function RootLayout(props: LayoutProps<"/[lang]">) {
       lang={lang}
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{props.children}</body>
+      <body className="min-h-full flex flex-col" suppressHydrationWarning>
+        {props.children}
+      </body>
     </html>
   );
 }

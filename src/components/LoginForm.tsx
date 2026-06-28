@@ -1,24 +1,62 @@
 "use client";
 
 import { useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 import type { LoginDictionary } from "@/dictionaries";
 
-export function LoginForm({ dict }: { dict: LoginDictionary }) {
+export function LoginForm({ dict, lang }: { dict: LoginDictionary; lang: string }) {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    const form = e.currentTarget;
+    const email = (form.elements.namedItem("email") as HTMLInputElement).value;
+    const password = (form.elements.namedItem("password") as HTMLInputElement).value;
+
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (res.ok) {
+        router.push(`/${lang}/dashboard`);
+        return;
+      }
+
+      const json = await res.json();
+      setError(json.error ?? "Invalid credentials");
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const inputClass =
+    "w-full bg-white/5 border border-white/15 rounded-md px-4 py-3 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-[#c6a87c] transition-colors";
 
   return (
-    <form className="space-y-5" onSubmit={(e) => e.preventDefault()}>
+    <form className="space-y-5" onSubmit={handleSubmit}>
       <div>
         <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
           {dict.emailLabel}
         </label>
         <input
           id="email"
+          name="email"
           type="email"
           required
           placeholder={dict.emailPlaceholder}
-          className="w-full bg-white/5 border border-white/15 rounded-md px-4 py-3 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-[#c6a87c] transition-colors"
+          className={inputClass}
         />
       </div>
 
@@ -34,10 +72,11 @@ export function LoginForm({ dict }: { dict: LoginDictionary }) {
         <div className="relative">
           <input
             id="password"
+            name="password"
             type={showPassword ? "text" : "password"}
             required
             placeholder={dict.passwordPlaceholder}
-            className="w-full bg-white/5 border border-white/15 rounded-md px-4 py-3 pr-11 text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-[#c6a87c] transition-colors"
+            className={`${inputClass} pr-11`}
           />
           <button
             type="button"
@@ -55,10 +94,14 @@ export function LoginForm({ dict }: { dict: LoginDictionary }) {
         {dict.rememberMe}
       </label>
 
+      {error && <p className="text-sm text-red-400">{error}</p>}
+
       <button
         type="submit"
-        className="w-full bg-[#c6a87c] text-black font-semibold py-3 rounded-md hover:bg-[#b09265] transition-colors"
+        disabled={loading}
+        className="w-full bg-[#c6a87c] text-black font-semibold py-3 rounded-md hover:bg-[#b09265] transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
       >
+        {loading && <Loader2 className="w-4 h-4 animate-spin" />}
         {dict.submit}
       </button>
     </form>

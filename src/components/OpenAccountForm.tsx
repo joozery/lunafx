@@ -1,24 +1,58 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 import type { OpenAccountDictionary, Locale } from "@/dictionaries";
 
 export function OpenAccountForm({ dict, lang }: { dict: OpenAccountDictionary; lang: Locale }) {
+  const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (password !== confirmPassword) {
       setError(dict.passwordMismatch);
       return;
     }
+
     setError("");
+    setLoading(true);
+
+    const form = e.currentTarget;
+    const data = {
+      firstName: (form.elements.namedItem("firstName") as HTMLInputElement).value,
+      lastName: (form.elements.namedItem("lastName") as HTMLInputElement).value,
+      email: (form.elements.namedItem("email") as HTMLInputElement).value,
+      phone: (form.elements.namedItem("phone") as HTMLInputElement).value,
+      password,
+    };
+
+    try {
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+
+      if (res.ok) {
+        router.push(`/${lang}/dashboard`);
+        return;
+      }
+
+      const json = await res.json();
+      setError(json.error ?? "Something went wrong");
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   const inputClass =
@@ -31,13 +65,13 @@ export function OpenAccountForm({ dict, lang }: { dict: OpenAccountDictionary; l
           <label htmlFor="firstName" className="block text-sm font-medium text-gray-300 mb-2">
             {dict.firstNameLabel}
           </label>
-          <input id="firstName" type="text" required placeholder={dict.firstNamePlaceholder} className={inputClass} />
+          <input id="firstName" name="firstName" type="text" required placeholder={dict.firstNamePlaceholder} className={inputClass} />
         </div>
         <div>
           <label htmlFor="lastName" className="block text-sm font-medium text-gray-300 mb-2">
             {dict.lastNameLabel}
           </label>
-          <input id="lastName" type="text" required placeholder={dict.lastNamePlaceholder} className={inputClass} />
+          <input id="lastName" name="lastName" type="text" required placeholder={dict.lastNamePlaceholder} className={inputClass} />
         </div>
       </div>
 
@@ -45,14 +79,14 @@ export function OpenAccountForm({ dict, lang }: { dict: OpenAccountDictionary; l
         <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
           {dict.emailLabel}
         </label>
-        <input id="email" type="email" required placeholder={dict.emailPlaceholder} className={inputClass} />
+        <input id="email" name="email" type="email" required placeholder={dict.emailPlaceholder} className={inputClass} />
       </div>
 
       <div>
         <label htmlFor="phone" className="block text-sm font-medium text-gray-300 mb-2">
           {dict.phoneLabel}
         </label>
-        <input id="phone" type="tel" required placeholder={dict.phonePlaceholder} className={inputClass} />
+        <input id="phone" name="phone" type="tel" required placeholder={dict.phonePlaceholder} className={inputClass} />
       </div>
 
       <div>
@@ -62,6 +96,7 @@ export function OpenAccountForm({ dict, lang }: { dict: OpenAccountDictionary; l
         <div className="relative">
           <input
             id="password"
+            name="password"
             type={showPassword ? "text" : "password"}
             required
             minLength={8}
@@ -88,6 +123,7 @@ export function OpenAccountForm({ dict, lang }: { dict: OpenAccountDictionary; l
         <div className="relative">
           <input
             id="confirmPassword"
+            name="confirmPassword"
             type={showConfirm ? "text" : "password"}
             required
             minLength={8}
@@ -130,8 +166,10 @@ export function OpenAccountForm({ dict, lang }: { dict: OpenAccountDictionary; l
 
       <button
         type="submit"
-        className="w-full bg-[#c6a87c] text-black font-semibold py-3 rounded-md hover:bg-[#b09265] transition-colors"
+        disabled={loading}
+        className="w-full bg-[#c6a87c] text-black font-semibold py-3 rounded-md hover:bg-[#b09265] transition-colors disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
       >
+        {loading && <Loader2 className="w-4 h-4 animate-spin" />}
         {dict.submit}
       </button>
     </form>
