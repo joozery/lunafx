@@ -15,5 +15,5 @@ export default async function AmlPolicyPage(props: PageProps<"/[lang]/aml-policy
   if (!hasLocale(lang)) notFound();
   const dict = await getDictionary(lang);
 
-  return <LegalPageLayout dict={dict} lang={lang} page={dict.legal.aml} email="compliance@lunaforex.com" />;
+  return <LegalPageLayout dict={dict} lang={lang} page={dict.legal.aml} email="compliance@lunaforex.com" slug="aml-policy" />;
 }

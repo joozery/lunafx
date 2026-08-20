@@ -1,57 +1,63 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSession } from "@/lib/session";
 import { getDb } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
+import { r2, getPublicUrl } from "@/lib/r2";
 
-export async function POST(request: Request) {
-  try {
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+const ALLOWED_TYPES: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/heic": "heic",
+};
 
-    const body = await request.json();
-    const { amount, method, type } = body;
+/* POST — รับสลิปโอนเงินผ่าน multipart form → upload R2 → บันทึก transaction pending */
+export async function POST(req: NextRequest) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    if (!amount || amount <= 0) {
-      return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
-    }
+  const formData = await req.formData();
+  const slip = formData.get("slip") as File | null;
+  const amountThb = parseFloat((formData.get("amountThb") as string) ?? "0");
+  const amountUsd = parseFloat((formData.get("amountUsd") as string) ?? "0");
+  const accountNumber = (formData.get("accountNumber") as string)?.trim();
 
-    // TODO: Connect to Real Payment Gateway (e.g., Stripe, Omise, Binance Pay)
-    // Example Stripe flow:
-    // 1. Create a Stripe Checkout Session
-    // 2. Return the session URL to the client
-    // 3. Client redirects to Stripe securely
-    // 4. Stripe webhook confirms payment and updates MongoDB
+  if (!slip) return NextResponse.json({ error: "กรุณาแนบสลิปโอนเงิน" }, { status: 400 });
+  if (!ALLOWED_TYPES[slip.type]) return NextResponse.json({ error: "รองรับเฉพาะไฟล์รูปภาพ (JPG, PNG, WEBP)" }, { status: 400 });
+  if (!amountThb || amountThb <= 0) return NextResponse.json({ error: "กรุณาระบุจำนวนเงินที่ถูกต้อง" }, { status: 400 });
+  if (!accountNumber) return NextResponse.json({ error: "กรุณาเลือกบัญชีเทรด" }, { status: 400 });
 
-    // For now, we simulate a successful API gateway response
-    const mockGatewayResponse = {
-      success: true,
-      transactionId: `TXN-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-      checkoutUrl: "https://checkout.stripe.com/pay/mock_url...", // We will replace this with real URL
-      message: "Payment gateway initialized successfully."
-    };
+  /* Upload slip → R2 */
+  const ext = ALLOWED_TYPES[slip.type];
+  const slipKey = `deposits/${session.userId}/slip_${crypto.randomUUID()}.${ext}`;
+  const buffer = Buffer.from(await slip.arrayBuffer());
+  await r2.send(new PutObjectCommand({
+    Bucket: process.env.R2_BUCKET_NAME!,
+    Key: slipKey,
+    Body: buffer,
+    ContentType: slip.type,
+  }));
+  const slipUrl = getPublicUrl(slipKey);
 
-    // (Optional) We could log this pending transaction to MongoDB here
-    /*
-    const db = await getDb();
-    await db.collection("transactions").insertOne({
-      userId: new ObjectId(session.userId),
-      amount: parseFloat(amount),
-      method,
-      type, // 'deposit' or 'withdrawal'
-      status: 'pending',
-      transactionId: mockGatewayResponse.transactionId,
-      createdAt: new Date(),
-    });
-    */
+  /* บันทึก transaction */
+  const txnId = `DEP-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  const db = await getDb();
+  await db.collection("transactions").insertOne({
+    userId: new ObjectId(session.userId),
+    type: "deposit",
+    method: "bank_slip",
+    accountNumber,
+    amountThb,
+    amount: amountUsd,
+    slipUrl,
+    slipKey,
+    status: "pending",
+    transactionId: txnId,
+    adminNotes: "",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
 
-    return NextResponse.json(mockGatewayResponse);
-  } catch (error) {
-    console.error("Deposit API Error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json({ ok: true, transactionId: txnId });
 }

@@ -15,5 +15,5 @@ export default async function PrivacyPolicyPage(props: PageProps<"/[lang]/privac
   if (!hasLocale(lang)) notFound();
   const dict = await getDictionary(lang);
 
-  return <LegalPageLayout dict={dict} lang={lang} page={dict.legal.privacy} email="privacy@lunaforex.com" />;
+  return <LegalPageLayout dict={dict} lang={lang} page={dict.legal.privacy} email="privacy@lunaforex.com" slug="privacy-policy" />;
 }

@@ -15,5 +15,5 @@ export default async function TermsAndConditionsPage(props: PageProps<"/[lang]/t
   if (!hasLocale(lang)) notFound();
   const dict = await getDictionary(lang);
 
-  return <LegalPageLayout dict={dict} lang={lang} page={dict.legal.terms} email="legal@lunaforex.com" />;
+  return <LegalPageLayout dict={dict} lang={lang} page={dict.legal.terms} email="legal@lunaforex.com" slug="terms-and-conditions" />;
 }
