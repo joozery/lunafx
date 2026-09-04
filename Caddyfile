@@ -1,0 +1,6 @@
+luxafx.com, www.luxafx.com {
+    request_body {
+        max_size 50MB
+    }
+    reverse_proxy app:3002
+}
