@@ -28,7 +28,7 @@ interface MenuItem {
   label: string;
   icon: any;
   badge?: string;
-  subItems?: { href: string; label: string }[];
+  subItems?: { href: string; label: string; badge?: string }[];
 }
 
 interface MenuSection {
@@ -78,7 +78,8 @@ export function DashboardSidebar({ lang, user }: { lang: string; user: any }) {
           label: isth ? "การเทรด" : "Trading", 
           icon: TrendingUp,
           subItems: [
-            { href: `/${lang}/dashboard/platforms`, label: isth ? "แพลตฟอร์มเทรด" : "Trading Platforms" }
+            { href: `/${lang}/webtrader`, label: isth ? "Luna WebTrader" : "Luna WebTrader", badge: "NEW" },
+            { href: `/${lang}/dashboard/platforms`, label: isth ? "ดาวน์โหลดแพลตฟอร์ม" : "Download Platforms" }
           ]
         },
         { href: `/${lang}/dashboard/copy-trading`, label: isth ? "ก๊อปปี้เทรด" : "Copy Trading", icon: Users, badge: "HOT" },
@@ -211,7 +212,14 @@ export function DashboardSidebar({ lang, user }: { lang: string; user: any }) {
                               {isSubActive && (
                                 <span className="absolute left-[-15px] top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-[#c6a87c] ring-2 ring-white" />
                               )}
-                              {sub.label}
+                              <span className="flex items-center gap-1.5">
+                                {sub.label}
+                                {sub.badge && (
+                                  <span className="text-[9px] font-extrabold px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-600">
+                                    {sub.badge}
+                                  </span>
+                                )}
+                              </span>
                             </Link>
                           );
                         })}

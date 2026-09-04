@@ -136,6 +136,31 @@ export interface LanguageSwitcherDictionary {
   th: string;
 }
 
+export interface ForgotPasswordDictionary {
+  metaTitle: string;
+  metaDescription: string;
+  heading: string;
+  subheading: string;
+  emailLabel: string;
+  emailPlaceholder: string;
+  sendOtp: string;
+  sending: string;
+  otpSentMessage: string;
+  otpLabel: string;
+  otpPlaceholder: string;
+  newPasswordLabel: string;
+  newPasswordPlaceholder: string;
+  confirmPasswordLabel: string;
+  confirmPasswordPlaceholder: string;
+  passwordMismatch: string;
+  submit: string;
+  submitting: string;
+  resendOtp: string;
+  backToLogin: string;
+  successMessage: string;
+  successSubMessage: string;
+}
+
 export interface Dictionary {
   nav: NavDictionary;
   hero: HeroDictionary;
@@ -148,4 +173,5 @@ export interface Dictionary {
   openAccount: OpenAccountDictionary;
   legal: LegalDictionary;
   languageSwitcher: LanguageSwitcherDictionary;
+  forgotPassword: ForgotPasswordDictionary;
 }

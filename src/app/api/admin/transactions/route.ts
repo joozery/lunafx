@@ -63,19 +63,23 @@ export async function PATCH(req: NextRequest) {
     { $set: { status, adminNotes: adminNotes ?? "", updatedAt: new Date() } }
   );
 
-  /* อนุมัติฝาก → เติมยอดในบัญชีเทรด */
-  if (status === "completed" && txn.type === "deposit" && txn.accountNumber && txn.amount > 0) {
-    await db.collection("accounts").updateOne(
+  /* อนุมัติฝาก → เติมยอดในบัญชีเทรด (only if not already auto-approved by Slip2Go) */
+  if (status === "completed" && txn.type === "deposit" && txn.accountNumber && txn.amount > 0
+    && txn.status !== "completed") {
+    const r = await db.collection("accounts").updateOne(
       { accountNumber: txn.accountNumber },
-      { $inc: { balance: txn.amount, equity: txn.amount } }
+      { $inc: { balance: txn.amount, equity: txn.amount, freeMargin: txn.amount } }
     );
+    if (r.matchedCount === 0) {
+      console.error(`[admin/txn] no account found for accountNumber=${txn.accountNumber}`);
+    }
   }
 
   /* ปฏิเสธถอน → คืนยอดให้ user (ยอดถูกหักไปแล้วตอนส่งคำขอ) */
   if (status === "failed" && txn.type === "withdrawal" && txn.accountNumber && txn.amount > 0) {
     await db.collection("accounts").updateOne(
       { accountNumber: txn.accountNumber },
-      { $inc: { balance: txn.amount, equity: txn.amount } }
+      { $inc: { balance: txn.amount, equity: txn.amount, freeMargin: txn.amount } }
     );
   }
 

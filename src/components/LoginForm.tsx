@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import type { LoginDictionary } from "@/dictionaries";
 
@@ -65,9 +66,9 @@ export function LoginForm({ dict, lang }: { dict: LoginDictionary; lang: string 
           <label htmlFor="password" className="block text-sm font-medium text-gray-300">
             {dict.passwordLabel}
           </label>
-          <a href="#" className="text-sm text-[#c6a87c] hover:text-[#d8bc91] transition-colors">
+          <Link href={`/${lang}/forgot-password`} className="text-sm text-[#c6a87c] hover:text-[#d8bc91] transition-colors">
             {dict.forgotPassword}
-          </a>
+          </Link>
         </div>
         <div className="relative">
           <input

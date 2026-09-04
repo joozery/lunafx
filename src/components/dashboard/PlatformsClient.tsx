@@ -343,7 +343,7 @@ export function PlatformsClient({ lang }: PlatformsClientProps) {
             {/* Launch Action */}
             <div className="space-y-2.5 pt-5 mt-4 border-t border-slate-100">
               <Link
-                href={`/${lang}/dashboard`}
+                href={`/${lang}/webtrader`}
                 className="w-full bg-gradient-to-r from-[#c6a87c] via-[#b89766] to-[#997a49] hover:brightness-110 text-white font-bold py-3 rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-[#c6a87c]/25 border border-[#f0d8b3]/30"
               >
                 <Globe className="w-4 h-4 text-white" />

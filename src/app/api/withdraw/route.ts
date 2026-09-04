@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
   /* ล็อคยอด (หักจาก balance ทันทีเพื่อกันถอนซ้ำ) */
   await db.collection("accounts").updateOne(
     { accountNumber, userId: new ObjectId(session.userId) },
-    { $inc: { balance: -amountUsd, equity: -amountUsd } }
+    { $inc: { balance: -amountUsd, equity: -amountUsd, freeMargin: -amountUsd } }
   );
 
   const txnId = `WDR-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;

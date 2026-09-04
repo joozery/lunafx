@@ -28,6 +28,26 @@ type Txn = {
   bankName?: string;
   bankAccountNumber?: string;
   bankAccountName?: string;
+  /* slip2go verification */
+  slip2go?: {
+    status: string;
+    code: string | null;
+    checked: boolean;
+    data?: {
+      referenceId?: string;
+      transRef?: string;
+      dateTime?: string;
+      amount?: number;
+      receiver?: {
+        account?: { name?: string; bank?: { account?: string | null } };
+        bank?: { id?: string; name?: string | null };
+      };
+      sender?: {
+        account?: { name?: string; bank?: { account?: string } };
+        bank?: { id?: string; name?: string | null };
+      };
+    } | null;
+  };
 };
 
 const STATUS_MAP: Record<string, { cls: string; label: string }> = {
@@ -35,6 +55,26 @@ const STATUS_MAP: Record<string, { cls: string; label: string }> = {
   completed: { cls: "bg-emerald-50 text-emerald-700 border border-emerald-200", label: "อนุมัติแล้ว" },
   failed:    { cls: "bg-red-50 text-red-700 border border-red-200",         label: "ไม่อนุมัติ" },
 };
+
+const SLIP2GO_BADGE: Record<string, { cls: string; label: string }> = {
+  verified:          { cls: "bg-emerald-100 text-emerald-700", label: "✓ Slip2Go ผ่าน" },
+  duplicate:         { cls: "bg-red-100 text-red-700",         label: "✗ สลิปซ้ำ" },
+  fake:              { cls: "bg-red-100 text-red-700",         label: "✗ สลิปปลอม" },
+  amount_mismatch:   { cls: "bg-orange-100 text-orange-700",   label: "✗ ยอดไม่ตรง" },
+  receiver_mismatch: { cls: "bg-orange-100 text-orange-700",   label: "✗ บัญชีผิด" },
+  not_found:         { cls: "bg-yellow-100 text-yellow-700",   label: "⚠ ไม่พบในระบบ" },
+  bank_error:        { cls: "bg-gray-100 text-gray-600",       label: "⚠ ธนาคารขัดข้อง" },
+  unavailable:       { cls: "bg-gray-100 text-gray-500",       label: "— ยังไม่ตรวจ" },
+};
+
+function Slip2GoBadge({ status, code }: { status: string; code: string | null }) {
+  const b = SLIP2GO_BADGE[status] ?? { cls: "bg-gray-100 text-gray-500", label: status };
+  return (
+    <span title={code ?? ""} className={`inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full ${b.cls}`}>
+      {b.label}
+    </span>
+  );
+}
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -190,12 +230,17 @@ export default function AdminTransactionsPage() {
                       ${Number(t.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </td>
                     <td className="px-5 py-4">
-                      {t.slipUrl ? (
-                        <a href={t.slipUrl} target="_blank" rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-[11px] font-bold text-[#b89766] hover:text-[#997a49] transition-colors">
-                          <ImageIcon className="w-3.5 h-3.5" /> ดูสลิป
-                        </a>
-                      ) : <span className="text-gray-300 text-xs">-</span>}
+                      <div className="flex flex-col gap-1">
+                        {t.slipUrl ? (
+                          <a href={t.slipUrl} target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-[#b89766] hover:text-[#997a49] transition-colors">
+                            <ImageIcon className="w-3.5 h-3.5" /> ดูสลิป
+                          </a>
+                        ) : <span className="text-gray-300 text-xs">-</span>}
+                        {t.slip2go?.checked && (
+                          <Slip2GoBadge status={t.slip2go.status} code={t.slip2go.code} />
+                        )}
+                      </div>
                     </td>
                     <td className="px-5 py-4">
                       <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${s.cls}`}>{s.label}</span>

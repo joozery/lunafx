@@ -91,7 +91,7 @@ export function FundsClient({ lang }: { lang: string }) {
   const [slipPreview, setSlipPreview] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [success, setSuccess] = useState<{ txnId: string; autoApproved: boolean; slip2goStatus: string } | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
@@ -150,12 +150,14 @@ export function FundsClient({ lang }: { lang: string }) {
       const res = await fetch("/api/deposit", { method: "POST", body: fd });
       const data = await res.json();
       if (data.ok) {
-        setSuccess(data.transactionId);
+        setSuccess({ txnId: data.transactionId, autoApproved: data.autoApproved, slip2goStatus: data.slip2goStatus ?? "unavailable" });
         setAmountThb("");
         setSlip(null);
         setSlipPreview(null);
       } else {
-        setError(data.error || "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง");
+        // Show Slip2Go-specific error with code for support reference
+        const codeHint = data.slip2goCode ? ` (รหัส: ${data.slip2goCode})` : "";
+        setError((data.error || "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง") + codeHint);
       }
     } catch {
       setError("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้");
@@ -173,27 +175,45 @@ export function FundsClient({ lang }: { lang: string }) {
 
   /* ── SUCCESS STATE ── */
   if (success) {
+    const { txnId, autoApproved, slip2goStatus } = success;
+
+    const slip2goLabel: Record<string, { th: string; cls: string }> = {
+      verified:    { th: "✓ Slip2Go ตรวจสอบผ่านแล้ว",               cls: "bg-emerald-50 border-emerald-200 text-emerald-700" },
+      not_found:   { th: "⚠ สลิปอยู่ระหว่างประมวลผลโดยธนาคาร",       cls: "bg-amber-50 border-amber-200 text-amber-700" },
+      unavailable: { th: "— ระบบตรวจสอบสลิปไม่พร้อมใช้งาน",           cls: "bg-slate-50 border-slate-200 text-slate-500" },
+      auth_error:  { th: "— ระบบตรวจสอบสลิปไม่พร้อมใช้งาน",           cls: "bg-slate-50 border-slate-200 text-slate-500" },
+      bank_error:  { th: "⚠ ธนาคารขัดข้องชั่วคราว รอ admin ตรวจสอบ",  cls: "bg-slate-50 border-slate-200 text-slate-500" },
+    };
+    const badge = slip2goLabel[slip2goStatus] ?? slip2goLabel.unavailable;
+
     return (
       <div className="max-w-lg mx-auto py-16 text-center space-y-5">
-        <div className="w-20 h-20 bg-emerald-100 rounded-3xl flex items-center justify-center mx-auto">
-          <CheckCircle2 className="w-10 h-10 text-emerald-600" />
+        <div className={`w-20 h-20 rounded-3xl flex items-center justify-center mx-auto ${autoApproved ? "bg-emerald-100" : "bg-amber-50"}`}>
+          <CheckCircle2 className={`w-10 h-10 ${autoApproved ? "text-emerald-600" : "text-amber-500"}`} />
         </div>
         <div>
-          <h2 className="text-xl font-bold text-slate-900">{isth ? "ส่งสลิปสำเร็จ!" : "Slip Submitted!"}</h2>
+          <h2 className="text-xl font-bold text-slate-900">
+            {autoApproved
+              ? (isth ? "ยอดเงินเข้าบัญชีแล้ว!" : "Funds Credited!")
+              : (isth ? "ส่งสลิปสำเร็จ — รอตรวจสอบ" : "Slip Submitted — Pending Review")}
+          </h2>
           <p className="text-sm text-slate-500 mt-2 max-w-xs mx-auto leading-relaxed">
-            {isth
-              ? "ระบบได้รับหลักฐานการโอนเงินเรียบร้อยแล้ว ทีมงานจะอนุมัติยอดเข้าบัญชีเทรดโดยเร็วที่สุด"
-              : "Payment proof received. Funds will be credited to your trading account after verification."}
+            {autoApproved
+              ? (isth ? "ยอดเงินเข้าบัญชีเทรดของคุณเรียบร้อยแล้ว สามารถเริ่มเทรดได้ทันที" : "Funds have been credited to your trading account. You can start trading now.")
+              : (isth ? "ระบบได้รับสลิปแล้ว ทีมงานจะตรวจสอบและอนุมัติโดยเร็วที่สุด" : "Slip received. Our team will review and approve shortly.")}
           </p>
         </div>
+        <div className={`inline-flex items-center gap-2 px-4 py-2 border rounded-full text-xs font-bold ${badge.cls}`}>
+          {badge.th}
+        </div>
         <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs font-mono font-bold text-slate-700">
-          Ref ID: {success}
+          Ref ID: {txnId}
         </div>
         <button
           onClick={() => setSuccess(null)}
           className="bg-gradient-to-r from-[#c6a87c] via-[#b89766] to-[#997a49] hover:brightness-110 text-white font-bold px-6 py-2.5 rounded-xl text-xs shadow-md transition-all"
         >
-          {isth ? "ทอดทำรายการใหม่" : "Make Another Deposit"}
+          {isth ? "ทำรายการใหม่" : "Make Another Deposit"}
         </button>
       </div>
     );
