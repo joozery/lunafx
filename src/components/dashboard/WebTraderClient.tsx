@@ -74,7 +74,7 @@ export function WebTraderClient({ lang }: { lang: string }) {
   const isth = lang === "th";
 
   /* ── Chart state ── */
-  const [selectedSymbol, setSelectedSymbol] = useState(SYMBOLS[0]);
+  const [selectedSymbol, setSelectedSymbol] = useState(SYMBOLS.find(s => s.id === 'EURUSD') ?? SYMBOLS[0]);
   const [timeframe, setTimeframe] = useState("5");
   const [chartKey, setChartKey] = useState(0);
 
@@ -152,22 +152,14 @@ export function WebTraderClient({ lang }: { lang: string }) {
     const vol = parseFloat(volume);
     if (isNaN(vol) || vol <= 0) return;
 
-    // Use Socket.IO price if available; fallback to HTTP once
-    let sp = prices[selectedSymbol.id];
+    const sp = prices[selectedSymbol.id];
     if (!sp) {
-      try {
-        const r = await fetch("/api/prices");
-        const d = await r.json();
-        if (d.ok && d.prices[selectedSymbol.id]) {
-          sp = d.prices[selectedSymbol.id];
-          setPrices((prev) => ({ ...prev, ...d.prices }));
-        }
-      } catch {}
+      setOrderSuccess(isth ? "ยังไม่มีราคา — กรุณารอสักครู่" : "No price yet — please wait");
+      setTimeout(() => setOrderSuccess(""), 3000);
+      return;
     }
 
-    const openPrice = sp
-      ? (orderType === "buy" ? sp.ask : sp.bid)
-      : 0;
+    const openPrice = orderType === "buy" ? sp.ask : sp.bid;
 
     setPlacing(true);
     try {
@@ -648,8 +640,12 @@ export function WebTraderClient({ lang }: { lang: string }) {
             </button>
 
             {orderSuccess && (
-              <div className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold flex items-start gap-2">
-                <span className="shrink-0">✓</span>
+              <div className={`p-2.5 rounded-xl text-[11px] font-bold flex items-start gap-2 ${
+                orderSuccess.startsWith("▲") || orderSuccess.startsWith("▼")
+                  ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-400"
+                  : "bg-amber-500/10 border border-amber-500/20 text-amber-400"
+              }`}>
+                <span className="shrink-0">{orderSuccess.startsWith("▲") || orderSuccess.startsWith("▼") ? "✓" : "⚠"}</span>
                 <span className="break-all">{orderSuccess}</span>
               </div>
             )}

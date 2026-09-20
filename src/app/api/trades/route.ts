@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { accountId, symbol, type, volume, openPrice, sl, tp } = body;
 
-  if (!accountId || !symbol || !type || volume == null || !openPrice) {
+  if (!accountId || !symbol || !type || volume == null || openPrice == null) {
     return NextResponse.json({ ok: false, error: "missing fields" }, { status: 400 });
   }
 
