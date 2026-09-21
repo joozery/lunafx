@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { io } from "socket.io-client";
+import { calcTradePnl } from "@/lib/pnl";
 import {
   TrendingUp, TrendingDown, ChevronDown,
   Activity, AlertCircle, ArrowLeft,
@@ -11,18 +12,18 @@ import {
 
 /* ── Symbols ── */
 const SYMBOLS = [
-  { id: "XAUUSD", label: "XAU/USD", name: "ทองคำ",          pip: 0.01,   digits: 2, tv: "TVC:GOLD",        pnlFactor: 100    },
-  { id: "EURUSD", label: "EUR/USD", name: "ยูโร/ดอลลาร์",    pip: 0.0001, digits: 5, tv: "FX:EURUSD",       pnlFactor: 100000 },
-  { id: "GBPUSD", label: "GBP/USD", name: "ปอนด์/ดอลลาร์",   pip: 0.0001, digits: 5, tv: "FX:GBPUSD",       pnlFactor: 100000 },
-  { id: "USDJPY", label: "USD/JPY", name: "ดอลลาร์/เยน",     pip: 0.01,   digits: 3, tv: "FX:USDJPY",       pnlFactor: 650    },
-  { id: "USDCHF", label: "USD/CHF", name: "ดอลลาร์/ฟรังก์",  pip: 0.0001, digits: 5, tv: "FX:USDCHF",       pnlFactor: 110000 },
-  { id: "AUDUSD", label: "AUD/USD", name: "ออสเตรเลีย",      pip: 0.0001, digits: 5, tv: "FX:AUDUSD",       pnlFactor: 100000 },
-  { id: "USDCAD", label: "USD/CAD", name: "ดอลลาร์/แคนาดา",  pip: 0.0001, digits: 5, tv: "FX:USDCAD",       pnlFactor: 75000  },
-  { id: "NZDUSD", label: "NZD/USD", name: "นิวซีแลนด์",      pip: 0.0001, digits: 5, tv: "FX:NZDUSD",       pnlFactor: 100000 },
-  { id: "BTCUSD", label: "BTC/USD", name: "บิตคอยน์",        pip: 1,      digits: 2, tv: "BITSTAMP:BTCUSD", pnlFactor: 1      },
-  { id: "ETHUSD", label: "ETH/USD", name: "อีเธอเรียม",      pip: 0.01,   digits: 2, tv: "BITSTAMP:ETHUSD", pnlFactor: 1      },
-  { id: "USOIL",  label: "WTI Oil", name: "น้ำมัน WTI",      pip: 0.01,   digits: 2, tv: "NYMEX:CL1!",      pnlFactor: 1000   },
-  { id: "US30",   label: "US30",    name: "ดาวโจนส์",        pip: 1,      digits: 2, tv: "FOREXCOM:DJI",    pnlFactor: 1      },
+  { id: "XAUUSD", label: "XAU/USD", name: "ทองคำ",          pip: 0.01,   digits: 2, tv: "TVC:GOLD" },
+  { id: "EURUSD", label: "EUR/USD", name: "ยูโร/ดอลลาร์",    pip: 0.0001, digits: 5, tv: "FX:EURUSD" },
+  { id: "GBPUSD", label: "GBP/USD", name: "ปอนด์/ดอลลาร์",   pip: 0.0001, digits: 5, tv: "FX:GBPUSD" },
+  { id: "USDJPY", label: "USD/JPY", name: "ดอลลาร์/เยน",     pip: 0.01,   digits: 3, tv: "FX:USDJPY" },
+  { id: "USDCHF", label: "USD/CHF", name: "ดอลลาร์/ฟรังก์",  pip: 0.0001, digits: 5, tv: "FX:USDCHF" },
+  { id: "AUDUSD", label: "AUD/USD", name: "ออสเตรเลีย",      pip: 0.0001, digits: 5, tv: "FX:AUDUSD" },
+  { id: "USDCAD", label: "USD/CAD", name: "ดอลลาร์/แคนาดา",  pip: 0.0001, digits: 5, tv: "FX:USDCAD" },
+  { id: "NZDUSD", label: "NZD/USD", name: "นิวซีแลนด์",      pip: 0.0001, digits: 5, tv: "FX:NZDUSD" },
+  { id: "BTCUSD", label: "BTC/USD", name: "บิตคอยน์",        pip: 1,      digits: 2, tv: "BITSTAMP:BTCUSD" },
+  { id: "ETHUSD", label: "ETH/USD", name: "อีเธอเรียม",      pip: 0.01,   digits: 2, tv: "BITSTAMP:ETHUSD" },
+  { id: "USOIL",  label: "WTI Oil", name: "น้ำมัน WTI",      pip: 0.01,   digits: 2, tv: "NYMEX:CL1!" },
+  { id: "US30",   label: "US30",    name: "ดาวโจนส์",        pip: 1,      digits: 2, tv: "FOREXCOM:DJI" },
 ];
 
 const TIMEFRAMES = [
@@ -62,11 +63,16 @@ function symOf(id: string) {
   return SYMBOLS.find((s) => s.id === id) ?? SYMBOLS[0];
 }
 
+// A position is valued at the price it would close at: buys close at bid, sells at ask.
+function closingPrice(trade: Trade, prices: Prices): number | undefined {
+  const p = prices[trade.symbol];
+  if (!p) return undefined;
+  return trade.type === "buy" ? p.bid : p.ask;
+}
+
 function calcPnl(trade: Trade, prices: Prices): number {
-  const sym = symOf(trade.symbol);
-  const current = prices[trade.symbol]?.mid ?? trade.openPrice;
-  const dir = trade.type === "buy" ? 1 : -1;
-  return dir * (current - trade.openPrice) * trade.volume * sym.pnlFactor;
+  const current = closingPrice(trade, prices) ?? trade.openPrice;
+  return calcTradePnl(trade.type, trade.symbol, trade.openPrice, current, trade.volume);
 }
 
 /* ══════════════════════════════════════════════ */
@@ -91,7 +97,7 @@ export function WebTraderClient({ lang }: { lang: string }) {
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [showAccDrop, setShowAccDrop] = useState(false);
 
-  /* ── Prices state (poll every 5s) ── */
+  /* ── Prices state (pushed over Socket.IO, ~4 updates/s) ── */
   const [prices, setPrices] = useState<Prices>({});
 
   /* ── Positions state ── */
@@ -100,7 +106,14 @@ export function WebTraderClient({ lang }: { lang: string }) {
   const [activeTab, setActiveTab] = useState<"positions" | "history">("positions");
   const [closing, setClosing] = useState<string | null>(null);
 
-  /* ── Fetch accounts ── */
+  /* ── Fetch accounts (also called after every open/close so balance stays in sync) ── */
+  const fetchAccounts = useCallback(async () => {
+    const d = await fetch("/api/accounts").then((r) => r.json());
+    const all: Account[] = d.accounts ?? [];
+    setAccounts(all);
+    setSelectedAccount((prev) => all.find((a) => a.id === prev?.id) ?? all[0] ?? null);
+  }, []);
+
   useEffect(() => {
     fetch("/api/accounts")
       .then((r) => r.json())
@@ -123,16 +136,17 @@ export function WebTraderClient({ lang }: { lang: string }) {
   }, []);
 
   /* ── Fetch open positions + history ── */
+  const accountId = selectedAccount?.id;
   const fetchPositions = useCallback(async () => {
-    if (!selectedAccount) return;
+    if (!accountId) return;
     const [openRes, histRes] = await Promise.all([
-      fetch(`/api/trades?accountId=${selectedAccount.id}&status=open`),
-      fetch(`/api/trades?accountId=${selectedAccount.id}&status=closed`),
+      fetch(`/api/trades?accountId=${accountId}&status=open`),
+      fetch(`/api/trades?accountId=${accountId}&status=closed`),
     ]);
     const [od, hd] = await Promise.all([openRes.json(), histRes.json()]);
     setOpenPositions(od.trades ?? []);
     setTradeHistory(hd.trades ?? []);
-  }, [selectedAccount]);
+  }, [accountId]);
 
   useEffect(() => { fetchPositions(); }, [fetchPositions]);
 
@@ -159,8 +173,6 @@ export function WebTraderClient({ lang }: { lang: string }) {
       return;
     }
 
-    const openPrice = orderType === "buy" ? sp.ask : sp.bid;
-
     setPlacing(true);
     try {
       const res = await fetch("/api/trades", {
@@ -171,23 +183,22 @@ export function WebTraderClient({ lang }: { lang: string }) {
           symbol: selectedSymbol.id,
           type: orderType,
           volume: vol,
-          openPrice,
           sl: sl ? parseFloat(sl) : null,
           tp: tp ? parseFloat(tp) : null,
         }),
       });
       const d = await res.json();
       if (d.ok) {
-        const priceStr = openPrice
-          ? ` @ ${openPrice.toFixed(selectedSymbol.digits)}`
-          : "";
+        // the server fills at its own price and tells us what it was
         setOrderSuccess(
-          `${orderType === "buy" ? "▲ BUY" : "▼ SELL"} ${volume} lot ${selectedSymbol.label}${priceStr}`
+          `${orderType === "buy" ? "▲ BUY" : "▼ SELL"} ${volume} lot ${selectedSymbol.label} @ ${Number(d.openPrice).toFixed(selectedSymbol.digits)}`
         );
-        setTimeout(() => setOrderSuccess(""), 5000);
         setSl(""); setTp("");
-        await fetchPositions();
+        await Promise.all([fetchPositions(), fetchAccounts()]);
+      } else {
+        setOrderSuccess(d.error ?? (isth ? "เปิดออเดอร์ไม่สำเร็จ" : "Order failed"));
       }
+      setTimeout(() => setOrderSuccess(""), 5000);
     } finally {
       setPlacing(false);
     }
@@ -195,17 +206,25 @@ export function WebTraderClient({ lang }: { lang: string }) {
 
   /* ── Close position ── */
   const handleClose = async (pos: Trade) => {
-    const closePrice = prices[pos.symbol]?.mid;
-    if (!closePrice || closing) return;
+    if (closing) return;
     setClosing(pos.id);
     try {
       const res = await fetch("/api/trades", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tradeId: pos.id, closePrice }),
+        body: JSON.stringify({ tradeId: pos.id }),
       });
       const d = await res.json();
-      if (d.ok) await fetchPositions();
+      if (d.ok) {
+        const sign = d.pnl >= 0 ? "+" : "-";
+        setOrderSuccess(
+          `${d.pnl >= 0 ? "▲" : "▼"} ${isth ? "ปิด" : "Closed"} ${symOf(pos.symbol).label} ${sign}$${fmtN(Math.abs(d.pnl))}`
+        );
+        await Promise.all([fetchPositions(), fetchAccounts()]);
+      } else {
+        setOrderSuccess(d.error ?? (isth ? "ปิดออเดอร์ไม่สำเร็จ" : "Close failed"));
+      }
+      setTimeout(() => setOrderSuccess(""), 5000);
     } finally {
       setClosing(null);
     }
@@ -217,6 +236,9 @@ export function WebTraderClient({ lang }: { lang: string }) {
     `&hidesidetoolbar=0&hidetoptoolbar=0&symboledit=0&saveimage=0` +
     `&toolbarbg=0f172a&studies=%5B%5D&theme=dark&style=1` +
     `&timezone=Asia%2FBangkok&withdateranges=1&locale=${isth ? "th_TH" : "en"}&hide_volume=0`;
+
+  // Equity and free margin float with the open positions; balance only changes when a trade closes
+  const floatingPnl = openPositions.reduce((sum, p) => sum + calcPnl(p, prices), 0);
 
   const selPrice = prices[selectedSymbol.id];
   const hasPrices = !!selPrice;
@@ -495,8 +517,8 @@ export function WebTraderClient({ lang }: { lang: string }) {
             <div className="p-3 border-b border-slate-800 space-y-1.5">
               {[
                 { label: isth ? "ยอดคงเหลือ" : "Balance",    value: `$${fmtN(selectedAccount.balance)}`,    color: "text-slate-200"  },
-                { label: isth ? "ทุน" : "Equity",             value: `$${fmtN(selectedAccount.equity)}`,     color: "text-emerald-400" },
-                { label: isth ? "มาร์จิ้นว่าง" : "Free Margin", value: `$${fmtN(selectedAccount.freeMargin)}`, color: "text-[#c6a87c]" },
+                { label: isth ? "ทุน" : "Equity",             value: `$${fmtN(selectedAccount.equity + floatingPnl)}`,     color: "text-emerald-400" },
+                { label: isth ? "มาร์จิ้นว่าง" : "Free Margin", value: `$${fmtN(selectedAccount.freeMargin + floatingPnl)}`, color: "text-[#c6a87c]" },
                 { label: "Leverage",                           value: selectedAccount.leverage,                color: "text-slate-400"  },
               ].map(({ label, value, color }) => (
                 <div key={label} className="flex justify-between items-center">

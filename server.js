@@ -2,9 +2,15 @@
 const { createServer } = require('http');
 const next = require('next');
 const { Server } = require('socket.io');
+const WebSocket = require('ws');
+const crypto = require('crypto');
+const { loadEnvConfig } = require('@next/env');
 
 const PORT = parseInt(process.env.PORT || '3002', 10);
 const dev = process.env.NODE_ENV !== 'production';
+
+// Load .env* files up front so FASTFOREX_API_KEY / SESSION_SECRET are set before we read them below
+loadEnvConfig(process.cwd(), dev);
 
 const httpServer = createServer();
 const nextApp = next({ dev, port: PORT, hostname: 'localhost' });
@@ -15,11 +21,9 @@ const io = new Server(httpServer, {
   cors: { origin: '*', methods: ['GET', 'POST'] },
 });
 
-/* ─── Symbol list (for drift fallback) ─── */
-const ALL_IDS = ['XAUUSD','EURUSD','GBPUSD','USDJPY','USDCHF','AUDUSD','USDCAD','NZDUSD','BTCUSD','ETHUSD','USOIL','US30'];
-
 /* ══════════════════════════════════════════
-   SOURCE A: Binance — BTC & ETH (free, no auth, very high rate limit)
+   SOURCE A: Binance — BTC & ETH
+   REST (24h change stats + fallback); live ticks come from the websocket feed below
 ═══════════════════════════════════════════ */
 async function fetchCryptoPrices() {
   const res = await fetch(
@@ -45,7 +49,7 @@ async function fetchCryptoPrices() {
 }
 
 /* ══════════════════════════════════════════
-   SOURCE B: open.er-api.com — forex pairs (free, no key, hourly updates)
+   SOURCE B: open.er-api.com — forex pairs, FALLBACK ONLY (daily rate, ~1.5 pip synthetic spread)
 ═══════════════════════════════════════════ */
 const FOREX_CFG = {
   EURUSD: { code: 'EUR', invert: true  },
@@ -74,13 +78,14 @@ async function fetchForexPrices() {
       ask: mid + spread,
       change: 0,
       changePct: 0,
+      indicative: true,   // daily rate: fine to display, never used to execute trades
     };
   }
   return out;
 }
 
 /* ══════════════════════════════════════════
-   SOURCE C: Coinbase — XAUUSD gold spot price (free, no key)
+   SOURCE C: Coinbase — XAUUSD gold spot price, FALLBACK ONLY (polled)
 ═══════════════════════════════════════════ */
 async function fetchGoldPrice() {
   const res = await fetch('https://api.coinbase.com/v2/prices/XAU-USD/spot', {
@@ -170,32 +175,163 @@ async function fetchYahooPrices() {
 }
 
 /* ══════════════════════════════════════════
-   DRIFT — simulate tiny movement for symbols with stale data
-   so the UI never looks frozen even when APIs are slow
+   PRICE STORE — websocket ticks are the primary source; the REST
+   fetchers above only fill in symbols with no recent websocket tick
+   (and supply 24h change stats). No simulated prices.
 ═══════════════════════════════════════════ */
-let lastPrices = {};
+const WS_FRESH_MS = 10_000;   // a websocket tick newer than this beats REST data
+const EMIT_MS     = 250;      // max broadcast rate to browsers (~4/s)
 
-function applyDrift(fresh) {
-  const result = { ...fresh };
-  for (const id of ALL_IDS) {
-    if (result[id]) continue;           // fresh data wins
-    if (!lastPrices[id]) continue;      // nothing to drift from
-    const last   = lastPrices[id];
-    const drift  = 1 + (Math.random() - 0.5) * 0.0002; // ±0.01%
-    const mid    = last.mid * drift;
-    const spread = last.ask - last.bid;
-    result[id] = {
-      mid,
-      bid: mid - spread / 2,
-      ask: mid + spread / 2,
-      change:    last.change,
-      changePct: last.changePct,
-    };
-  }
-  return result;
+let lastPrices = {};
+const wsTickAt = {};          // symbol id → ms timestamp of last websocket tick
+let dirty = false;
+
+const isLive = (id) => Date.now() - (wsTickAt[id] ?? 0) < WS_FRESH_MS;
+
+function applyTick(id, bid, ask) {
+  if (!(bid > 0) || !(ask > 0)) return;
+  const prev = lastPrices[id];
+  lastPrices[id] = {
+    mid: (bid + ask) / 2,
+    bid,
+    ask,
+    change:    prev?.change    ?? 0,
+    changePct: prev?.changePct ?? 0,
+    src: 'ws',
+    ts: Date.now(),
+  };
+  wsTickAt[id] = Date.now();
+  dirty = true;
 }
 
-/* ─── Main broadcast ─── */
+function applyRest(fresh) {
+  for (const [id, q] of Object.entries(fresh)) {
+    if (isLive(id)) {
+      // keep the live bid/ask, only refresh the 24h stats
+      lastPrices[id] = { ...lastPrices[id], change: q.change, changePct: q.changePct };
+    } else {
+      lastPrices[id] = { ...q, src: 'rest', ts: Date.now() };
+    }
+  }
+  dirty = true;
+}
+
+/* ══════════════════════════════════════════
+   TRADE QUOTES — the API routes execute orders at server-side prices only.
+   A quote is tradable if it is a fresh websocket tick, or a recent REST
+   price that is not merely indicative. Otherwise (e.g. forex market closed,
+   feed down) orders are rejected instead of filled at a stale price.
+═══════════════════════════════════════════ */
+const REST_TRADABLE_MS = 60_000;
+
+function tradableQuote(id) {
+  const q = lastPrices[id];
+  if (!q || q.indicative) return null;
+  if (isLive(id)) return q;
+  if (q.src === 'rest' && Date.now() - q.ts < REST_TRADABLE_MS) return q;
+  return null;
+}
+
+// Shared secret so only our own API routes (via loopback) can read quotes
+const QUOTE_TOKEN = process.env.SESSION_SECRET
+  ? Buffer.from(crypto.createHash('sha256').update(`${process.env.SESSION_SECRET}:internal-quote`).digest('hex'))
+  : null;
+
+function handleQuote(req, res) {
+  const got = Buffer.from(String(req.headers['x-internal-token'] ?? ''));
+  if (!QUOTE_TOKEN || got.length !== QUOTE_TOKEN.length || !crypto.timingSafeEqual(got, QUOTE_TOKEN)) {
+    res.statusCode = 404;
+    return res.end();
+  }
+  const id = new URL(req.url, 'http://localhost').searchParams.get('symbol') ?? '';
+  const q = tradableQuote(id);
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Cache-Control', 'no-store');
+  if (!q) {
+    res.statusCode = 503;
+    return res.end(JSON.stringify({ ok: false }));
+  }
+  res.end(JSON.stringify({ ok: true, bid: q.bid, ask: q.ask }));
+}
+
+/* ══════════════════════════════════════════
+   WEBSOCKET FEEDS — Binance (BTC/ETH) and FastForex (forex + gold)
+═══════════════════════════════════════════ */
+function connectFeed(name, url, { onOpen, onMessage }) {
+  let ws = null;
+  let retry = 0;
+  let stopped = false;
+
+  const scheduleReconnect = () => {
+    if (stopped) return;
+    const delay = Math.min(1000 * 2 ** retry++, 30_000) + Math.random() * 500;
+    console.warn(`[${name}] reconnecting in ${Math.round(delay / 1000)}s`);
+    setTimeout(open, delay);
+  };
+
+  function open() {
+    let alive = true;
+    ws = new WebSocket(url);
+
+    // detect half-dead connections: a ping must be answered within one interval
+    const heartbeat = setInterval(() => {
+      if (!alive) { ws.terminate(); return; }
+      alive = false;
+      try { ws.ping(); } catch {}
+    }, 20_000);
+
+    ws.on('pong', () => { alive = true; });
+    ws.on('open', () => { retry = 0; console.log(`[${name}] connected`); onOpen?.(ws); });
+    ws.on('message', (raw) => {
+      alive = true;
+      try { onMessage(JSON.parse(raw.toString()), { ws, stop: () => { stopped = true; ws.close(); } }); } catch {}
+    });
+    ws.on('error', (e) => console.warn(`[${name}] error: ${e.message}`));
+    ws.on('close', () => { clearInterval(heartbeat); scheduleReconnect(); });
+  }
+
+  open();
+}
+
+/* Binance: best bid/ask for BTC & ETH on every book update */
+const BINANCE_MAP = { BTCUSDT: 'BTCUSD', ETHUSDT: 'ETHUSD' };
+connectFeed('binance', 'wss://stream.binance.com:9443/stream?streams=btcusdt@bookTicker/ethusdt@bookTicker', {
+  onMessage: ({ data }) => {
+    const id = BINANCE_MAP[data?.s];
+    if (id) applyTick(id, parseFloat(data.b), parseFloat(data.a));
+  },
+});
+
+/* FastForex: 7 forex pairs + XAUUSD over one connection (plan limit: 2 connections).
+   Note: subscribe must wait for the auth ack, otherwise the server answers 401. */
+const FF_KEY   = process.env.FASTFOREX_API_KEY;
+const FF_FX    = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD'];
+const FF_METAL = ['XAUUSD'];
+
+if (FF_KEY) {
+  connectFeed('fastforex', 'wss://fastforex.wsdx.io', {
+    onOpen: (ws) => ws.send(JSON.stringify({ op: 'auth', key: FF_KEY })),
+    onMessage: (m, { ws, stop }) => {
+      if (m.op === 'price') {
+        applyTick(m.sym, parseFloat(m.bid), parseFloat(m.ask));
+      } else if (m.op === 'auth') {
+        if (m.status === 200) {
+          ws.send(JSON.stringify({ op: 'subscribe', stream: 'fx',     pairs: FF_FX }));
+          ws.send(JSON.stringify({ op: 'subscribe', stream: 'metals', pairs: FF_METAL }));
+        } else {
+          console.error(`[fastforex] auth failed (${m.status}): ${m.msg} — using REST fallback only`);
+          stop();
+        }
+      } else if (m.op === 'subscribe' && m.status !== 200) {
+        console.warn(`[fastforex] subscribe failed (${m.status}): ${m.msg}`);
+      }
+    },
+  });
+} else {
+  console.warn('[fastforex] FASTFOREX_API_KEY not set — forex/gold fall back to delayed REST data');
+}
+
+/* ─── REST poll (fallback + 24h stats + Yahoo oil/US30) ─── */
 async function fetchAndBroadcast() {
   try {
     const [cryptoR, forexR, goldR, yahooR] = await Promise.allSettled([
@@ -205,19 +341,12 @@ async function fetchAndBroadcast() {
       fetchYahooPrices(),
     ]);
 
-    const fresh = {
-      ...(cryptoR.status === 'fulfilled' ? cryptoR.value : {}),
+    applyRest({
       ...(forexR.status  === 'fulfilled' ? forexR.value  : {}),
       ...(goldR.status   === 'fulfilled' ? goldR.value   : {}),
       ...(yahooR.status  === 'fulfilled' ? yahooR.value  : {}),
-    };
-
-    const prices = applyDrift(fresh);
-    if (Object.keys(prices).length === 0) return;
-
-    lastPrices = prices;
-    io.emit('prices', prices);
-    process.stdout.write(`\r[prices] ${Object.keys(prices).length} symbols → ${io.engine.clientsCount} clients`);
+      ...(cryptoR.status === 'fulfilled' ? cryptoR.value : {}),
+    });
   } catch (e) {
     console.error('\n[prices] fetch error:', e.message);
   }
@@ -239,30 +368,40 @@ refreshYFSession()
   .catch(e => console.warn('[prices] YF session init failed:', e.message))
   .finally(() => fetchAndBroadcast());
 
-// Crypto every 5s (Binance has high rate limits)
+// REST poll every 30s: oil/US30 (Yahoo), 24h stats, and fallback when a websocket feed is down
+const priceInterval = setInterval(fetchAndBroadcast, 30_000);
+
+// Crypto REST fallback every 5s — only fires while the Binance websocket is not delivering
 setInterval(async () => {
+  if (isLive('BTCUSD') && isLive('ETHUSD')) return;
   try {
     const crypto = await fetchCryptoPrices();
-    if (Object.keys(crypto).length === 0) return;
-    lastPrices = { ...lastPrices, ...crypto };
-    io.emit('prices', lastPrices);
+    if (Object.keys(crypto).length > 0) applyRest(crypto);
   } catch {}
 }, 5_000);
 
-// Forex + Yahoo every 30s
-const priceInterval = setInterval(fetchAndBroadcast, 30_000);
+// Broadcast to browsers, coalescing ticks into at most one message per EMIT_MS
+const emitInterval = setInterval(() => {
+  if (!dirty) return;
+  dirty = false;
+  io.emit('prices', lastPrices);
+}, EMIT_MS);
 
 process.on('SIGTERM', () => {
   clearInterval(priceInterval);
+  clearInterval(emitInterval);
   process.exit(0);
 });
 
 /* ─── Boot Next.js then start listening ─── */
 nextApp.prepare().then(() => {
-  httpServer.on('request', (req, res) => { handle(req, res); });
+  httpServer.on('request', (req, res) => {
+    if (req.url && req.url.startsWith('/internal/quote')) return handleQuote(req, res);
+    handle(req, res);
+  });
 
   httpServer.listen(PORT, () => {
     console.log(`\n> Ready at http://localhost:${PORT} [${dev ? 'dev' : 'prod'}]`);
-    console.log('> Crypto: Binance every 5s | Forex: ExchangeRate API every 30s | Gold/Oil/Index: Yahoo Finance every 30s');
+    console.log('> Live ticks: Binance WS (BTC/ETH) + FastForex WS (forex/gold) | Oil/US30: Yahoo REST every 30s');
   });
 });
