@@ -6,6 +6,7 @@ import { calcTradePnl } from "@/lib/pnl";
 import { getConversionMids, getServerQuote, type Quote } from "@/lib/quote";
 import { slTpHit, stopOutOrder, type RiskPosition } from "@/lib/risk";
 import { closeTrade, internalToken } from "@/lib/trading";
+import { enforceCopyLossLimits } from "@/lib/copyTrading";
 
 /**
  * Called by server.js every few seconds. Closes positions whose SL/TP was hit,
@@ -70,6 +71,11 @@ export async function POST(req: NextRequest) {
       const r = await closeTrade(db, t, quotes.get(t.symbol)!, "stop_out");
       if (r.ok) closed.push({ tradeId: id, reason: "stop_out", pnl: r.pnl });
     }
+  }
+
+  // 3) Copy trading: stop followers whose copy result hit their loss limit
+  for (const id of await enforceCopyLossLimits(db, quotes, mids)) {
+    closed.push({ tradeId: `subscription:${id}`, reason: "copy_max_loss", pnl: 0 });
   }
 
   return NextResponse.json({ ok: true, closed });

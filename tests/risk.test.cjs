@@ -47,3 +47,35 @@ test('negative equity closes everything', () => {
   const positions = [{ id: 'a', margin: 5.74, pnl: -26 }];
   assert.deepEqual([...stopOutOrder(-309.13, positions)], ['a']);
 });
+
+const { calcCopyVolume, copyLossBreached, masterStats, riskScoreFromDrawdown } = loadTs('src/lib/copyRules.ts');
+
+test('copy lot sizing rounds down and skips below 0.01', () => {
+  assert.equal(calcCopyVolume(1, 10000, { mode: 'ratio', allocation: 1000 }), 0.1);
+  assert.equal(calcCopyVolume(1, 10000, { mode: 'ratio', allocation: 50 }), 0);      // 0.005 → skip
+  assert.equal(calcCopyVolume(0.3, 10000, { mode: 'ratio', allocation: 1000 }), 0.03);
+  assert.equal(calcCopyVolume(1, 10000, { mode: 'ratio', allocation: 1999 }), 0.19); // never rounds up
+  assert.equal(calcCopyVolume(2, 10000, { mode: 'fixed', allocation: 0, fixedLot: 0.05 }), 0.05);
+  assert.equal(calcCopyVolume(0.4, 10000, { mode: 'multiplier', allocation: 0, multiplier: 0.5 }), 0.2);
+  assert.equal(calcCopyVolume(1, 0, { mode: 'ratio', allocation: 1000 }), 0);
+});
+
+test('copy loss limit', () => {
+  assert.equal(copyLossBreached(1000, 20, 0, -199), false);
+  assert.equal(copyLossBreached(1000, 20, 98, -298), true);
+  assert.equal(copyLossBreached(1000, 0, 0, -999), false); // no limit set
+});
+
+test('master stats from closed trades', () => {
+  const st = masterStats([
+    { pnl: 100, closeTime: '2026-01-01' },
+    { pnl: -300, closeTime: '2026-01-02' },
+    { pnl: 50, closeTime: '2026-01-03' },
+  ], 1000, Date.parse('2026-01-10'));
+  assert.equal(st.trades, 3);
+  assert.equal(st.winRate, 66.67);
+  assert.equal(st.totalPnl, -150);
+  assert.equal(st.roiTotal, -15);
+  assert.equal(st.maxDrawdown, 27.27); // 1100 → 800
+  assert.equal(riskScoreFromDrawdown(27.27), 6);
+});

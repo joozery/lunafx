@@ -3,7 +3,7 @@
 /** Positions are force-closed when equity / used margin falls to this percentage. */
 export const STOP_OUT_LEVEL = 50;
 
-export type CloseReason = "manual" | "sl" | "tp" | "stop_out";
+export type CloseReason = "manual" | "sl" | "tp" | "stop_out" | "master_close" | "copy_stop";
 
 /** SL/TP check at the price the position would close at: buy closes at bid, sell at ask. */
 export function slTpHit(

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { getDb } from "@/lib/mongodb";
-import { SYMBOL_SPECS, marginRequired, parseLeverage } from "@/lib/pnl";
-import { getConversionMids, getServerQuote } from "@/lib/quote";
-import { closeTrade } from "@/lib/trading";
+import { SYMBOL_SPECS } from "@/lib/pnl";
+import { getServerQuote } from "@/lib/quote";
+import { closeTrade, openTrade } from "@/lib/trading";
+import { copyOpen } from "@/lib/copyTrading";
 import { slTpHit } from "@/lib/risk";
 import { ObjectId } from "mongodb";
 
@@ -91,7 +92,6 @@ export async function POST(req: NextRequest) {
   // Fill at the server's own price: buy at ask, sell at bid. Any price from the browser is ignored.
   const quote = await getServerQuote(symbol);
   if (!quote) return NextResponse.json({ ok: false, error: NO_PRICE }, { status: 503 });
-  const openPrice = type === "buy" ? quote.ask : quote.bid;
 
   // SL/TP already on the wrong side of the market would close the position the moment it opens
   if (slTpHit(type, sl, tp, quote)) {
@@ -103,45 +103,19 @@ export async function POST(req: NextRequest) {
 
   const db = await getDb();
   const userId = new ObjectId(session.userId);
-  const accounts = db.collection("accounts");
 
-  const account = await accounts.findOne({ _id: new ObjectId(accountId), userId });
+  const account = await db.collection("accounts").findOne({ _id: new ObjectId(accountId), userId });
   if (!account || account.status === "suspended") {
     return NextResponse.json({ ok: false, error: "account not found" }, { status: 404 });
   }
 
-  // Reserve margin atomically; fails when free margin is insufficient. Balance itself only moves on close.
-  const margin = marginRequired(symbol, vol, openPrice, parseLeverage(account.leverage), await getConversionMids([symbol]));
-  const reserved = await accounts.findOneAndUpdate(
-    { _id: account._id, userId, freeMargin: { $gte: margin } },
-    { $inc: { freeMargin: -margin } },
-  );
-  if (!reserved) {
-    return NextResponse.json(
-      { ok: false, error: `มาร์จิ้นไม่เพียงพอ (ต้องใช้ $${margin.toFixed(2)})` },
-      { status: 400 },
-    );
-  }
+  const result = await openTrade(db, { account, symbol, type, volume: vol, quote, sl, tp });
+  if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
 
-  try {
-    const { insertedId } = await db.collection("trades").insertOne({
-      userId,
-      accountId,
-      symbol,
-      type,
-      volume: vol,
-      openPrice,
-      margin,
-      sl,
-      tp,
-      status: "open",
-      openTime: new Date(),
-    });
-    return NextResponse.json({ ok: true, tradeId: insertedId.toString(), openPrice, margin });
-  } catch {
-    await accounts.updateOne({ _id: account._id }, { $inc: { freeMargin: margin } }); // give the margin back
-    return NextResponse.json({ ok: false, error: "failed to open order" }, { status: 500 });
-  }
+  // If this account is an approved copy-trading master, mirror the order to its followers
+  void copyOpen(db, result.tradeId).catch((e) => console.error("[copy] open:", e));
+
+  return NextResponse.json({ ok: true, tradeId: result.tradeId.toString(), openPrice: result.openPrice, margin: result.margin });
 }
 
 export async function PATCH(req: NextRequest) {

@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash } from "crypto";
 import { ObjectId, type Db, type Document, type WithId } from "mongodb";
-import { calcTradePnl } from "@/lib/pnl";
+import { calcTradePnl, marginRequired, parseLeverage } from "@/lib/pnl";
 import { getConversionMids, type Quote } from "@/lib/quote";
 import type { CloseReason } from "@/lib/risk";
 import { forfeitBonusesIfBusted } from "@/lib/bonus";
@@ -12,6 +12,60 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export function internalToken(purpose: string): string | null {
   const secret = process.env.SESSION_SECRET;
   return secret ? createHash("sha256").update(`${secret}:${purpose}`).digest("hex") : null;
+}
+
+export type OpenResult =
+  | { ok: true; tradeId: ObjectId; openPrice: number; margin: number }
+  | { ok: false; status: number; error: string };
+
+export interface OpenTradeInput {
+  account: WithId<Document>;
+  symbol: string;
+  type: "buy" | "sell";
+  volume: number;
+  quote: Quote;
+  sl: number | null;
+  tp: number | null;
+  /** set on a follower's position opened by copy trading */
+  copy?: { masterId: ObjectId; subscriptionId: ObjectId; masterTradeId: ObjectId };
+}
+
+/**
+ * Open a position at the server quote (buy at ask, sell at bid), reserving margin atomically.
+ * Shared by manual orders and copy trading so both are filled and margined the same way.
+ */
+export async function openTrade(db: Db, input: OpenTradeInput): Promise<OpenResult> {
+  const { account, symbol, type, volume, quote, sl, tp, copy } = input;
+  const accounts = db.collection("accounts");
+  const openPrice = type === "buy" ? quote.ask : quote.bid;
+  const margin = marginRequired(symbol, volume, openPrice, parseLeverage(account.leverage), await getConversionMids([symbol]));
+
+  const reserved = await accounts.findOneAndUpdate(
+    { _id: account._id, freeMargin: { $gte: margin } },
+    { $inc: { freeMargin: -margin } },
+  );
+  if (!reserved) return { ok: false, status: 400, error: `มาร์จิ้นไม่เพียงพอ (ต้องใช้ $${margin.toFixed(2)})` };
+
+  try {
+    const { insertedId } = await db.collection("trades").insertOne({
+      userId: account.userId,
+      accountId: account._id.toString(),
+      symbol,
+      type,
+      volume,
+      openPrice,
+      margin,
+      sl,
+      tp,
+      status: "open",
+      openTime: new Date(),
+      ...(copy ? { copy } : {}),
+    });
+    return { ok: true, tradeId: insertedId, openPrice, margin };
+  } catch {
+    await accounts.updateOne({ _id: account._id }, { $inc: { freeMargin: margin } }); // give the margin back
+    return { ok: false, status: 500, error: "failed to open order" };
+  }
 }
 
 export type CloseResult =
@@ -52,6 +106,11 @@ export async function closeTrade(db: Db, trade: WithId<Document>, quote: Quote, 
     );
     return { ok: false, status: 500, error: "failed to update account" };
   }
+
+  // Copy trading: a follower's result counts toward its loss limit; a master's close closes its copies
+  const copy = await import("@/lib/copyTrading");
+  if (trade.copy?.subscriptionId) await copy.recordCopyResult(db, trade.copy.subscriptionId, pnl).catch((e) => console.error("[copy] result:", e));
+  else if (reason !== "copy_stop") await copy.closeCopies(db, trade._id).catch((e) => console.error("[copy] close:", e));
 
   return { ok: true, pnl, closePrice };
 }
