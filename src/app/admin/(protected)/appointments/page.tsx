@@ -225,7 +225,7 @@ export default function AdminAppointmentsPage() {
       <Dialog.Root open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (!o) setForm(EMPTY_FORM); }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white rounded-2xl shadow-xl z-50 p-6 max-h-[90vh] overflow-y-auto">
+          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] max-w-md bg-white rounded-2xl shadow-xl z-50 p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
               <Dialog.Title className="text-base font-semibold text-gray-900">เพิ่มนัดหมายใหม่</Dialog.Title>
               <Dialog.Close asChild>
@@ -308,7 +308,7 @@ export default function AdminAppointmentsPage() {
       <Dialog.Root open={!!editTarget} onOpenChange={(o) => !o && setEditTarget(null)}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white rounded-2xl shadow-xl z-50 p-6 max-h-[90vh] overflow-y-auto">
+          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] max-w-md bg-white rounded-2xl shadow-xl z-50 p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
               <Dialog.Title className="text-base font-semibold text-gray-900">แก้ไขนัดหมาย</Dialog.Title>
               <Dialog.Close asChild>
@@ -379,7 +379,7 @@ export default function AdminAppointmentsPage() {
       <AlertDialog.Root open={!!confirmCancel} onOpenChange={(o) => !o && setConfirmCancel(null)}>
         <AlertDialog.Portal>
           <AlertDialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40" />
-          <AlertDialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm bg-white rounded-2xl shadow-xl z-50 p-6">
+          <AlertDialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] max-w-sm bg-white rounded-2xl shadow-xl z-50 p-6">
             <AlertDialog.Title className="text-base font-semibold text-gray-900 mb-2">ยกเลิกนัดหมาย</AlertDialog.Title>
             <AlertDialog.Description className="text-sm text-gray-500 mb-6">คุณแน่ใจหรือไม่ว่าต้องการยกเลิกนัดหมายนี้?</AlertDialog.Description>
             <div className="flex gap-3 justify-end">

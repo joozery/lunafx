@@ -173,12 +173,12 @@ export default async function AdminDashboard() {
       </div>
 
       {/* 2. STAT CARDS GRID */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {STAT_CARDS.map((card, idx) => (
           <Link
             key={idx}
             href={card.link}
-            className="group bg-white border border-slate-200/90 hover:border-[#c6a87c] rounded-2xl p-5 shadow-2xs hover:shadow-md transition-all duration-200 flex flex-col justify-between"
+            className="group bg-white border border-slate-200/90 hover:border-[#c6a87c] rounded-2xl p-4 sm:p-5 shadow-2xs hover:shadow-md transition-all duration-200 flex flex-col justify-between"
           >
             <div>
               <div className="flex items-center justify-between mb-3">
@@ -186,16 +186,16 @@ export default async function AdminDashboard() {
                   <card.icon className="w-5 h-5" />
                 </div>
                 {card.badge && (
-                  <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
+                  <span className="hidden sm:inline text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md uppercase tracking-wider">
                     {card.badge}
                   </span>
                 )}
               </div>
-              <p className="text-3xl font-black text-slate-900 font-mono tracking-tight">
+              <p className="text-2xl sm:text-3xl font-black text-slate-900 font-mono tracking-tight">
                 {card.value.toLocaleString()}
               </p>
               <p className="text-xs font-bold text-slate-800 mt-1">{card.label}</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">{card.sub}</p>
+              <p className="hidden sm:block text-[11px] text-slate-400 mt-0.5">{card.sub}</p>
             </div>
 
             <div className="pt-3 mt-3 border-t border-slate-100 flex items-center justify-between text-[11px] font-bold text-[#b89766] group-hover:text-[#997a49]">

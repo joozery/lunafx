@@ -110,7 +110,41 @@ export default function AdminAccountRequestsPage() {
       </Select.Root>
 
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        {/* cards on phones */}
+        <ul className="md:hidden divide-y divide-gray-100">
+          {loading ? (
+            Array.from({ length: 3 }).map((_, i) => <li key={i} className="p-4"><div className="h-14 bg-gray-100 rounded-xl animate-pulse" /></li>)
+          ) : requests.length === 0 ? (
+            <li className="px-5 py-12 text-center">
+              <FileText className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+              <p className="text-gray-400 text-sm">ไม่พบคำขอ</p>
+            </li>
+          ) : requests.map((r) => (
+            <li key={r._id} className="p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-semibold text-gray-900 text-sm truncate">{r.user ? `${r.user.firstName} ${r.user.lastName}` : "-"}</p>
+                  <p className="text-[11px] text-gray-400 truncate">{r.user?.email}</p>
+                </div>
+                <span className={`shrink-0 text-xs px-2.5 py-1 rounded-full font-medium ${STATUS_BADGE[r.status] ?? "bg-gray-100 text-gray-600"}`}>
+                  {r.status === "pending" ? "รอพิจารณา" : r.status === "approved" ? "อนุมัติแล้ว" : "ปฏิเสธ"}
+                </span>
+              </div>
+              <p className="text-xs text-gray-600"><span className="capitalize font-semibold">{r.accountType}</span> · {r.platform} · {r.leverage} · {r.currency}</p>
+              <p className="text-[11px] text-gray-400">{formatDate(r.createdAt)}</p>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => { setSelected(r); setNotes(r.adminNotes ?? ""); }} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-700">ดูเอกสาร</button>
+                {r.status === "pending" && (
+                  <>
+                    <button type="button" onClick={() => setConfirmAction({ id: r._id, status: "approved", label: "อนุมัติคำขอนี้?" })} className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold">อนุมัติ</button>
+                    <button type="button" onClick={() => setConfirmAction({ id: r._id, status: "rejected", label: "ปฏิเสธคำขอนี้?" })} className="flex-1 py-2.5 rounded-xl bg-rose-50 text-rose-600 text-xs font-bold">ปฏิเสธ</button>
+                  </>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
@@ -204,7 +238,7 @@ export default function AdminAccountRequestsPage() {
       <Dialog.Root open={!!selected} onOpenChange={(o) => !o && setSelected(null)}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-white rounded-2xl shadow-xl z-50 p-6 max-h-[85vh] overflow-y-auto">
+          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] max-w-lg bg-white rounded-2xl shadow-xl z-50 p-6 max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
               <Dialog.Title className="text-base font-semibold text-gray-900">รายละเอียดคำขอ</Dialog.Title>
               <Dialog.Close asChild>
@@ -295,7 +329,7 @@ export default function AdminAccountRequestsPage() {
       <AlertDialog.Root open={!!confirmAction} onOpenChange={(o) => !o && setConfirmAction(null)}>
         <AlertDialog.Portal>
           <AlertDialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40" />
-          <AlertDialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm bg-white rounded-2xl shadow-xl z-50 p-6">
+          <AlertDialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] max-w-sm bg-white rounded-2xl shadow-xl z-50 p-6">
             <AlertDialog.Title className="text-base font-semibold text-gray-900 mb-2">ยืนยัน</AlertDialog.Title>
             <AlertDialog.Description className="text-sm text-gray-500 mb-6">{confirmAction?.label}</AlertDialog.Description>
             <div className="flex gap-3 justify-end">

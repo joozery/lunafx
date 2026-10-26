@@ -188,9 +188,71 @@ export default function AdminTransactionsPage() {
         ))}
       </div>
 
-      {/* Table */}
+      {/* Table (cards on phones) */}
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <ul className="md:hidden divide-y divide-gray-100">
+          {loading ? (
+            Array.from({ length: 3 }).map((_, i) => <li key={i} className="p-4"><div className="h-16 bg-gray-100 rounded-xl animate-pulse" /></li>)
+          ) : txns.length === 0 ? (
+            <li className="px-5 py-12 text-center">
+              <Receipt className="w-8 h-8 text-gray-200 mx-auto mb-2" />
+              <p className="text-gray-400 text-sm">ไม่พบรายการ</p>
+            </li>
+          ) : txns.map((t) => {
+            const s = STATUS_MAP[t.status] ?? { cls: "bg-gray-100 text-gray-600 border border-gray-200", label: t.status };
+            return (
+              <li key={t._id} className="p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-900 text-sm truncate">{t.user ? `${t.user.firstName} ${t.user.lastName}` : "-"}</p>
+                    <p className="text-[11px] text-gray-400 truncate">{t.user?.email} · #{t.accountNumber ?? "-"}</p>
+                  </div>
+                  <span className={`shrink-0 text-[11px] font-bold px-2.5 py-1 rounded-full ${s.cls}`}>{s.label}</span>
+                </div>
+                <div className="flex items-end justify-between gap-3">
+                  <div>
+                    <div className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full ${t.type === "withdrawal" ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>
+                      {t.type === "withdrawal" ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownLeft className="w-3 h-3" />}
+                      {TXN_TYPE_LABEL[t.type] ?? t.type}
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-1">{formatDate(t.createdAt)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-black text-gray-900 leading-tight">{t.amountThb ? `฿${Number(t.amountThb).toLocaleString()}` : `$${Number(t.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}</p>
+                    {t.amountThb ? <p className="text-xs font-semibold text-gray-500">${Number(t.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p> : null}
+                  </div>
+                </div>
+                {(t.slipUrl || t.slip2go?.checked) && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {t.slipUrl && (
+                      <a href={t.slipUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-[#b89766]">
+                        <ImageIcon className="w-3.5 h-3.5" /> ดูสลิป
+                      </a>
+                    )}
+                    {t.slip2go?.checked && <Slip2GoBadge status={t.slip2go.status} code={t.slip2go.code} />}
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => { setSelected(t); setAdminNotes(t.adminNotes ?? ""); }}
+                    className="flex-1 py-2.5 rounded-xl border border-gray-200 text-xs font-bold text-gray-700 active:bg-gray-50">รายละเอียด</button>
+                  {t.status === "pending" && (
+                    <>
+                      <button type="button" onClick={() => { setSelected(t); setAdminNotes(t.adminNotes ?? ""); setConfirmAction({ id: t._id, status: "completed" }); }}
+                        className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold active:bg-emerald-700 inline-flex items-center justify-center gap-1">
+                        <CheckCircle className="w-3.5 h-3.5" /> อนุมัติ
+                      </button>
+                      <button type="button" onClick={() => { setSelected(t); setAdminNotes(t.adminNotes ?? ""); setConfirmAction({ id: t._id, status: "failed" }); }}
+                        className="flex-1 py-2.5 rounded-xl bg-rose-50 text-rose-600 text-xs font-bold active:bg-rose-100 inline-flex items-center justify-center gap-1">
+                        <XCircle className="w-3.5 h-3.5" /> ไม่อนุมัติ
+                      </button>
+                    </>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-[#faf8f5] border-b border-[#e8d5b7]/50">
               <tr>
@@ -258,7 +320,7 @@ export default function AdminTransactionsPage() {
                     <td className="px-5 py-4">
                       <DropdownMenu.Root>
                         <DropdownMenu.Trigger asChild>
-                          <button className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors opacity-0 group-hover:opacity-100">
+                          <button className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors md:opacity-0 md:group-hover:opacity-100">
                             <MoreHorizontal className="w-4 h-4 text-gray-500" />
                           </button>
                         </DropdownMenu.Trigger>
@@ -311,7 +373,7 @@ export default function AdminTransactionsPage() {
       <Dialog.Root open={!!selected && !confirmAction} onOpenChange={(o) => { if (!o) { setSelected(null); setAdminNotes(""); } }}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-white rounded-2xl shadow-2xl z-50 overflow-hidden max-h-[90vh] overflow-y-auto">
+          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] max-w-lg bg-white rounded-2xl shadow-2xl z-50 overflow-hidden max-h-[90vh] overflow-y-auto">
             {/* Dialog header */}
             <div className="sticky top-0 bg-white flex items-center justify-between px-6 py-4 border-b border-gray-100 z-10">
               <Dialog.Title className="font-bold text-gray-900">รายละเอียดธุรกรรม</Dialog.Title>
@@ -413,7 +475,7 @@ export default function AdminTransactionsPage() {
       <AlertDialog.Root open={!!confirmAction} onOpenChange={(o) => !o && setConfirmAction(null)}>
         <AlertDialog.Portal>
           <AlertDialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50" />
-          <AlertDialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm bg-white rounded-2xl shadow-xl z-50 p-6">
+          <AlertDialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] max-w-sm bg-white rounded-2xl shadow-xl z-50 p-6">
             <AlertDialog.Title className="text-base font-bold text-gray-900 mb-2">
               {confirmAction?.status === "completed" ? "ยืนยันการอนุมัติ?" : "ยืนยันการไม่อนุมัติ?"}
             </AlertDialog.Title>

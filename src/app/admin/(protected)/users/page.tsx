@@ -206,9 +206,54 @@ export default function AdminUsersPage() {
         )}
       </div>
 
-      {/* ─── Table ─── */}
+      {/* ─── Table (cards on phones) ─── */}
       <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <ul className="md:hidden divide-y divide-slate-100">
+          {loading ? (
+            Array.from({ length: 4 }).map((_, i) => <li key={i} className="p-4"><div className="h-14 bg-slate-100 rounded-xl animate-pulse" /></li>)
+          ) : users.length === 0 ? (
+            <li className="px-5 py-12 text-center text-sm text-slate-400">ไม่พบผู้ใช้</li>
+          ) : users.map((u) => (
+            <li key={u._id} className="p-4 space-y-3">
+              <button type="button" onClick={() => setSelectedUser(u)} className="w-full flex items-center gap-3 text-left">
+                <div className="relative shrink-0">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#c6a87c] to-[#9b8058] flex items-center justify-center text-white text-sm font-bold">
+                    {u.firstName[0]?.toUpperCase()}
+                  </div>
+                  <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white ${u.status === "active" ? "bg-emerald-500" : "bg-red-400"}`} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-slate-900 truncate flex items-center gap-1.5">
+                    {u.firstName} {u.lastName}
+                    {u.role === "admin" && <span className="text-[9px] font-bold text-[#b89766] bg-[#fdf6ed] border border-[#e8d4b0] px-1.5 py-0.5 rounded">ADMIN</span>}
+                  </p>
+                  <p className="text-[11px] text-slate-400 truncate">{u.email}</p>
+                  <p className="text-[11px] text-slate-400">{u.phone || "—"} · สมัคร {formatDate(u.createdAt)}</p>
+                </div>
+                <StatusBadge status={u.status} />
+              </button>
+              <div className="flex items-center gap-2 text-[11px]">
+                <span className="font-mono font-bold text-slate-700 bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg">{u.trading?.closedLots ?? 0} lots · {u.trading?.trades ?? 0} ออเดอร์</span>
+                {u.trading?.bonus && (
+                  <span className="font-bold px-2 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200">
+                    โบนัส {u.trading.bonus.tradedLots}/{u.trading.bonus.requiredLots} lots
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setSelectedUser(u)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700">รายละเอียด</button>
+                {u.status === "active" ? (
+                  <button type="button" onClick={() => setConfirmAction({ userId: u._id, action: "status:suspended", label: `ระงับบัญชี ${u.firstName} ${u.lastName}`, desc: "บัญชีจะไม่สามารถเข้าสู่ระบบได้จนกว่าจะเปิดใช้งาน" })}
+                    className="flex-1 py-2.5 rounded-xl bg-red-50 text-red-600 text-xs font-bold">ระงับบัญชี</button>
+                ) : (
+                  <button type="button" onClick={() => setConfirmAction({ userId: u._id, action: "status:active", label: `เปิดใช้งานบัญชี ${u.firstName} ${u.lastName}`, desc: "ผู้ใช้จะสามารถเข้าสู่ระบบและใช้งานได้ตามปกติ" })}
+                    className="flex-1 py-2.5 rounded-xl bg-emerald-50 text-emerald-600 text-xs font-bold">เปิดใช้งาน</button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-100 bg-[#faf8f5]">
@@ -315,7 +360,7 @@ export default function AdminUsersPage() {
                   <td className="px-3 py-3.5">
                     <DropdownMenu.Root>
                       <DropdownMenu.Trigger asChild>
-                        <button className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100">
+                        <button className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all md:opacity-0 md:group-hover:opacity-100 focus:opacity-100">
                           <MoreHorizontal className="w-4 h-4" />
                         </button>
                       </DropdownMenu.Trigger>
@@ -418,7 +463,7 @@ export default function AdminUsersPage() {
       <Dialog.Root open={!!selectedUser} onOpenChange={(o) => !o && setSelectedUser(null)}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/25 backdrop-blur-sm z-40" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-white rounded-2xl shadow-2xl z-50 overflow-hidden">
+          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] max-w-md bg-white rounded-2xl shadow-2xl z-50 overflow-hidden">
             {selectedUser && (
               <>
                 {/* Header */}
@@ -474,7 +519,7 @@ export default function AdminUsersPage() {
       <AlertDialog.Root open={!!confirmAction} onOpenChange={(o) => !o && setConfirmAction(null)}>
         <AlertDialog.Portal>
           <AlertDialog.Overlay className="fixed inset-0 bg-black/25 backdrop-blur-sm z-40" />
-          <AlertDialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm bg-white rounded-2xl shadow-2xl z-50 p-6">
+          <AlertDialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] max-w-sm bg-white rounded-2xl shadow-2xl z-50 p-6">
             <div className="flex items-start gap-4 mb-6">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${confirmMeta.bg} ${confirmMeta.border}`}>
                 <confirmMeta.Icon className={`w-5 h-5 ${confirmMeta.text}`} />
