@@ -1,0 +1,16 @@
+{
+  "name": "LuxaFX Admin",
+  "short_name": "LuxaFX Admin",
+  "description": "หลังบ้าน LuxaFX — อนุมัติฝากถอน สมาชิก และตั้งค่าระบบ",
+  "start_url": "/admin",
+  "scope": "/admin",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f5f7",
+  "theme_color": "#0b1120",
+  "lang": "th",
+  "icons": [
+    { "src": "/admin-app/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/admin-app/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

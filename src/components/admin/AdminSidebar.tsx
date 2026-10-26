@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import type { ElementType } from "react";
 
-type NavItem = {
+export type NavItem = {
   href: string;
   label: string;
   sub: string;
@@ -32,7 +32,7 @@ type NavItem = {
   exact?: boolean;
 };
 
-const NAV_GROUPS: { title: string; categoryKey: string; items: NavItem[] }[] = [
+export const NAV_GROUPS: { title: string; categoryKey: string; items: NavItem[] }[] = [
   {
     title: "ภาพรวมระบบ (OVERVIEW)",
     categoryKey: "overview",

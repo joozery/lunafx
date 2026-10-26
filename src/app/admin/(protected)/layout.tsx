@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/adminAuth";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { AdminNotificationBell } from "@/components/admin/AdminNotificationBell";
+import { AdminMobileShell } from "@/components/admin/AdminMobileShell";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const admin = await requireAdmin();
@@ -10,10 +11,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <div className="flex h-screen bg-[#f4f5f7] overflow-hidden">
       <AdminSidebar adminName={`${admin.firstName} ${admin.lastName}`} />
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+        <AdminMobileShell adminName={`${admin.firstName} ${admin.lastName}`} />
         {/* Top bar */}
         {/* relative z-40: backdrop-blur creates a stacking context, so without it the page content paints over the bell dropdown */}
-        <header className="relative z-40 h-14 bg-white/80 backdrop-blur-sm border-b border-[#e8d4b0]/60 flex items-center px-6 shrink-0">
+        <header className="hidden md:flex relative z-40 h-14 bg-white/80 backdrop-blur-sm border-b border-[#e8d4b0]/60 items-center px-6 shrink-0">
           <div className="ml-auto flex items-center gap-4">
             <AdminNotificationBell />
             <div className="flex items-center gap-2.5">
@@ -27,7 +29,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             </div>
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto p-6 lg:p-8">
+        {/* bottom padding on phones keeps content clear of the fixed tab bar */}
+        <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:p-6 md:pb-6 lg:p-8">
           {children}
         </main>
       </div>
