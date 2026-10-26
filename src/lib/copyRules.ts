@@ -82,3 +82,16 @@ export function masterStats(trades: ClosedTradeLite[], base: number, now = Date.
 export function riskScoreFromDrawdown(maxDrawdown: number): number {
   return Math.min(10, Math.max(1, Math.ceil(maxDrawdown / 5)));
 }
+
+export const FEE_PERIOD_DAYS = 7;
+
+/**
+ * Performance fee with a high-water mark: the master is paid only on copy profit above the
+ * best level already charged, so losses must be recovered before any new fee is due.
+ * `cumulativePnl` is the follower's realised copy result since the subscription started.
+ */
+export function calcPerformanceFee(cumulativePnl: number, highWaterMark: number, feePercent: number): { fee: number; newHighWaterMark: number } {
+  if (!(feePercent > 0) || cumulativePnl <= highWaterMark) return { fee: 0, newHighWaterMark: highWaterMark };
+  const fee = Math.floor((cumulativePnl - highWaterMark) * feePercent) / 100; // round down to the cent
+  return { fee, newHighWaterMark: cumulativePnl };
+}

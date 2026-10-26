@@ -15,7 +15,7 @@ import {
 
 export interface TransactionItem {
   id: string;
-  type: "deposit" | "withdrawal" | "transfer" | "bonus" | "commission" | "adjustment";
+  type: "deposit" | "withdrawal" | "transfer" | "bonus" | "commission" | "adjustment" | "copy_fee" | "copy_fee_income";
   amount: number;
   currency: string;
   method?: string;
@@ -30,6 +30,7 @@ const CREDIT_LABELS: Record<string, { th: string; en: string }> = {
   bonus:      { th: "โบนัสเงินฝาก", en: "Deposit Bonus" },
   commission: { th: "ค่าแนะนำเพื่อน", en: "Referral Commission" },
   adjustment: { th: "ปรับยอดติดลบเป็น 0", en: "Balance Adjustment" },
+  copy_fee_income: { th: "รายได้ส่วนแบ่ง Copy Trade", en: "Copy Trading Income" },
 };
 
 const METHOD_NAMES: Record<string, string> = {
@@ -125,7 +126,7 @@ export function RecentActivityTable({
             // Bonus, referral commission and negative-balance write-off all credit the account like a deposit
             const credit = CREDIT_LABELS[txn.type];
             const isDeposit = txn.type === "deposit" || !!credit;
-            const isWithdrawal = txn.type === "withdrawal";
+            const isWithdrawal = txn.type === "withdrawal" || txn.type === "copy_fee";
             const isTransfer = txn.type === "transfer";
 
             return (
@@ -156,6 +157,8 @@ export function RecentActivityTable({
                           ? isth ? credit.th : credit.en
                           : isDeposit
                           ? isth ? "ฝากเงิน" : "Deposit"
+                          : txn.type === "copy_fee"
+                          ? isth ? "ส่วนแบ่งกำไรให้ Master" : "Copy Trading Fee"
                           : isWithdrawal
                           ? isth ? "ถอนเงิน" : "Withdrawal"
                           : isth ? "โอนเงินระหว่างบัญชี" : "Internal Transfer"}

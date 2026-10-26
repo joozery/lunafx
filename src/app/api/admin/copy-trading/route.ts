@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
 import { requireAdmin } from "@/lib/adminAuth";
 import { getDb } from "@/lib/mongodb";
-import { stopSubscription, summarizeMaster } from "@/lib/copyTrading";
+import { settleFees, stopSubscription, summarizeMaster } from "@/lib/copyTrading";
 
 /** Every master application/profile with real stats and its owner. */
 export async function GET() {
@@ -13,10 +13,15 @@ export async function GET() {
     .find({ _id: { $in: list.map((m) => m.userId) } }, { projection: { firstName: 1, lastName: 1, email: 1 } })
     .toArray()).map((u) => [u._id.toString(), u]));
 
+  const fees = new Map((await db.collection("copyFeeSettlements").aggregate([
+    { $group: { _id: "$masterId", total: { $sum: "$fee" } } },
+  ]).toArray()).map((f) => [f._id.toString(), Math.round(f.total * 100) / 100]));
+
   const masters = await Promise.all(list.map(async (m) => {
     const o = owners.get(m.userId.toString());
     return {
       ...(await summarizeMaster(db, m)),
+      feesCollected: fees.get(m._id.toString()) ?? 0,
       accountNumber: m.accountNumber,
       owner: o ? { name: `${o.firstName ?? ""} ${o.lastName ?? ""}`.trim(), email: o.email } : null,
       createdAt: m.createdAt,
@@ -34,6 +39,14 @@ export async function PATCH(req: NextRequest) {
   const id = new ObjectId(body.id);
   const master = await db.collection("copyMasters").findOne({ _id: id });
   if (!master) return NextResponse.json({ error: "ไม่พบ Master" }, { status: 404 });
+
+  // Settle every active copy of this master now instead of waiting for the weekly run
+  if (body.action === "settle") {
+    const active = await db.collection("copySubscriptions").find({ masterId: id, status: "active" }, { projection: { _id: 1 } }).toArray();
+    let total = 0;
+    for (const s of active) total += (await settleFees(db, s._id))?.fee ?? 0;
+    return NextResponse.json({ success: true, settled: active.length, total: Math.round(total * 100) / 100 });
+  }
 
   const set: Record<string, unknown> = { updatedAt: new Date() };
   switch (body.action) {

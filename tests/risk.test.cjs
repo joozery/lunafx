@@ -79,3 +79,19 @@ test('master stats from closed trades', () => {
   assert.equal(st.maxDrawdown, 27.27); // 1100 → 800
   assert.equal(riskScoreFromDrawdown(27.27), 6);
 });
+
+const { calcPerformanceFee } = loadTs('src/lib/copyRules.ts');
+
+test('performance fee uses a high-water mark', () => {
+  // week 1: +100 profit at 20% → $20, mark moves to 100
+  assert.deepEqual({ ...calcPerformanceFee(100, 0, 20) }, { fee: 20, newHighWaterMark: 100 });
+  // week 2: fell back to +40 → nothing, mark stays at 100
+  assert.deepEqual({ ...calcPerformanceFee(40, 100, 20) }, { fee: 0, newHighWaterMark: 100 });
+  // week 3: recovered to +150 → fee only on the 50 above the mark
+  assert.deepEqual({ ...calcPerformanceFee(150, 100, 20) }, { fee: 10, newHighWaterMark: 150 });
+  // no fee configured / losses only
+  assert.deepEqual({ ...calcPerformanceFee(500, 0, 0) }, { fee: 0, newHighWaterMark: 0 });
+  assert.deepEqual({ ...calcPerformanceFee(-80, 0, 20) }, { fee: 0, newHighWaterMark: 0 });
+  // rounds down to the cent
+  assert.equal(calcPerformanceFee(33.33, 0, 15).fee, 4.99);
+});

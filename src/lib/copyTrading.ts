@@ -3,7 +3,7 @@ import { ObjectId, type Db, type Document, type WithId } from "mongodb";
 import { calcTradePnl, type Mids } from "@/lib/pnl";
 import { getServerQuote, type Quote } from "@/lib/quote";
 import { closeTrade, openTrade } from "@/lib/trading";
-import { calcCopyVolume, copyLossBreached, masterStats, type CopyMode, type MasterStats } from "@/lib/copyRules";
+import { calcCopyVolume, calcPerformanceFee, copyLossBreached, masterStats, FEE_PERIOD_DAYS, type CopyMode, type MasterStats } from "@/lib/copyRules";
 
 /*
  * Copy trading on our own trading engine.
@@ -27,6 +27,10 @@ export interface Subscription {
   maxLossPercent: number;
   status: "active" | "stopped";
   realizedPnl: number;
+  feePercent?: number;      // snapshot of the master's fee when the copy started
+  highWaterMark?: number | null; // best cumulative realised result already charged a fee
+  feesPaid?: number;
+  lastSettledAt?: Date | null;
   copiedTrades: number;
   skippedTrades: number;
   lastSkip?: { at: Date; symbol: string; reason: string } | null;
@@ -124,7 +128,83 @@ export async function stopSubscription(db: Db, subscriptionId: ObjectId, reason:
   if (!claimed) return false;
   const open = await db.collection("trades").find({ "copy.subscriptionId": subscriptionId, status: "open" }).toArray();
   await closeEach(db, open, "copy_stop");
+  // final settlement now that every copied position is closed and realised
+  await settleFees(db, subscriptionId).catch((e) => console.error("[copy] final fee:", e));
   return true;
+}
+
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Charge the master's performance fee on the follower's realised copy profit above the
+ * high-water mark, moving it from the follower's account to the master's account.
+ * Safe to call repeatedly: the mark is claimed atomically, so a fee is never charged twice.
+ */
+export async function settleFees(db: Db, subscriptionId: ObjectId): Promise<{ fee: number } | null> {
+  const sub = await subs(db).findOne({ _id: subscriptionId });
+  if (!sub) return null;
+  const master = await masters(db).findOne({ _id: sub.masterId });
+  if (!master) return null;
+
+  const previous = sub.highWaterMark ?? 0;
+  const feePercent = sub.feePercent ?? master.feePercent ?? 0;
+  const { fee, newHighWaterMark } = calcPerformanceFee(sub.realizedPnl ?? 0, previous, feePercent);
+  const now = new Date();
+
+  if (fee <= 0) {
+    await subs(db).updateOne({ _id: sub._id }, { $set: { lastSettledAt: now } });
+    return { fee: 0 };
+  }
+
+  const follower = await db.collection("accounts").findOne({ _id: new ObjectId(sub.followerAccountId) });
+  // never push a follower negative: charge what the balance covers, the rest is waived
+  const charged = r2(Math.min(fee, Math.max(0, Number(follower?.balance) || 0)));
+
+  const claimed = await subs(db).findOneAndUpdate(
+    { _id: sub._id, highWaterMark: { $in: previous === 0 ? [0, null] : [previous] } },
+    { $set: { highWaterMark: newHighWaterMark, lastSettledAt: now }, $inc: { feesPaid: charged } },
+  );
+  if (!claimed) return { fee: 0 }; // settled concurrently
+
+  if (charged > 0 && follower) {
+    await db.collection("accounts").updateOne({ _id: follower._id }, { $inc: { balance: -charged, equity: -charged, freeMargin: -charged } });
+    await db.collection("accounts").updateOne({ _id: new ObjectId(master.accountId) }, { $inc: { balance: charged, equity: charged, freeMargin: charged } });
+  }
+
+  const ref = `CPF-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  await db.collection("copyFeeSettlements").insertOne({
+    ref, subscriptionId: sub._id, masterId: master._id, masterUserId: master.userId, followerUserId: sub.followerUserId,
+    cumulativePnl: r2(sub.realizedPnl ?? 0), previousHighWaterMark: previous, newHighWaterMark,
+    feePercent, fee: charged, owed: fee, at: now,
+  });
+  if (charged > 0) {
+    await db.collection("transactions").insertMany([
+      {
+        userId: sub.followerUserId, type: "copy_fee", method: "copy_trading", accountNumber: sub.followerAccountNumber,
+        amount: charged, status: "completed", transactionId: ref,
+        adminNotes: `ส่วนแบ่งกำไร ${feePercent}% ให้ Master ${master.displayName}`, createdAt: now, updatedAt: now,
+      },
+      {
+        userId: master.userId, type: "copy_fee_income", method: "copy_trading", accountNumber: master.accountNumber,
+        amount: charged, status: "completed", transactionId: ref,
+        adminNotes: `ส่วนแบ่งกำไรจากผู้คัดลอก #${sub.followerAccountNumber}`, createdAt: now, updatedAt: now,
+      },
+    ]);
+  }
+  return { fee: charged };
+}
+
+/** Weekly settlement: every active copy whose last settlement is at least FEE_PERIOD_DAYS old. */
+export async function settleDueFees(db: Db, now = Date.now()): Promise<{ settled: number; total: number }> {
+  const cutoff = new Date(now - FEE_PERIOD_DAYS * 86_400_000);
+  const due = await subs(db).find({
+    status: "active",
+    $or: [{ lastSettledAt: { $lte: cutoff } }, { lastSettledAt: { $exists: false }, startedAt: { $lte: cutoff } }, { lastSettledAt: null, startedAt: { $lte: cutoff } }],
+  }, { projection: { _id: 1 } }).toArray();
+
+  let total = 0;
+  for (const s of due) total += (await settleFees(db, s._id).catch(() => null))?.fee ?? 0;
+  return { settled: due.length, total: r2(total) };
 }
 
 /** Risk-engine hook: stop subscriptions whose copy result breached the follower's loss limit. */

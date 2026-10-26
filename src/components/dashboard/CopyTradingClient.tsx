@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Users, TrendingUp, ShieldAlert, X, CheckCircle2, Copy, StopCircle, Clock, Crown, AlertTriangle } from "lucide-react";
+import { Users, TrendingUp, ShieldAlert, X, CheckCircle2, Copy, StopCircle, Clock, Crown, AlertTriangle, Wallet } from "lucide-react";
 import { type Locale } from "@/dictionaries";
 
 interface Master {
@@ -44,6 +44,20 @@ interface Subscription {
   skippedTrades: number;
   lastSkip: { at: string; symbol: string; reason: string } | null;
   startedAt: string;
+  feePercent: number | null;
+  feesPaid: number;
+}
+
+interface Earnings {
+  id: string;
+  displayName: string;
+  status: string;
+  feePercent: number;
+  feesTotal: number;
+  fees30d: number;
+  pendingFees: number;
+  followers: { id: string; name: string; allocation: number; realizedPnl: number; feesPaid: number; feePercent: number; status: string; startedAt: string }[];
+  payouts: { ref: string; fee: number; feePercent: number; profit: number; at: string; follower: string }[];
 }
 
 interface Account { id: string; accountNumber: string; balance: number; isDemo: boolean; type: string }
@@ -65,6 +79,7 @@ export function CopyTradingClient({ lang }: { lang: string }) {
   const [subs, setSubs] = useState<Subscription[] | null>(null);
   const [myMasters, setMyMasters] = useState<Master[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [earnings, setEarnings] = useState<Earnings[]>([]);
   const [flash, setFlash] = useState<{ ok: boolean; text: string } | null>(null);
 
   const say = (ok: boolean, text: string) => { setFlash({ ok, text }); setTimeout(() => setFlash(null), 5000); };
@@ -74,6 +89,7 @@ export function CopyTradingClient({ lang }: { lang: string }) {
     fetch("/api/copy-trading/subscriptions").then((r) => r.json()).then((d) => setSubs(d.subscriptions ?? [])).catch(() => setSubs([]));
     fetch("/api/copy-trading/apply").then((r) => r.json()).then((d) => setMyMasters(d.masters ?? [])).catch(() => {});
     fetch("/api/accounts").then((r) => r.json()).then((d) => setAccounts(d.accounts ?? [])).catch(() => {});
+    fetch("/api/copy-trading/earnings").then((r) => r.json()).then((d) => setEarnings(d.masters ?? [])).catch(() => {});
   }, []);
 
   useEffect(() => { loadAll(); }, [loadAll]);
@@ -275,6 +291,13 @@ export function CopyTradingClient({ lang }: { lang: string }) {
                     <div className="bg-slate-50 rounded-xl py-2"><p className="font-black font-mono text-slate-900 text-sm">{s.openPositions}</p><p className="text-[10px] text-slate-500 font-bold">{isth ? "ออเดอร์เปิดอยู่" : "Open"}</p></div>
                     <div className="bg-slate-50 rounded-xl py-2"><p className="font-black font-mono text-slate-900 text-sm">{s.copiedTrades}</p><p className="text-[10px] text-slate-500 font-bold">{isth ? "คัดลอกแล้ว" : "Copied"}</p></div>
                   </div>
+                  {(s.feePercent ?? 0) > 0 && (
+                    <p className="text-[11px] text-slate-500">
+                      {isth
+                        ? `ส่วนแบ่งกำไรให้ Master ${s.feePercent}% (คิดทุก 7 วันจากกำไรที่ปิดแล้ว เฉพาะส่วนที่เกินจุดสูงสุดเดิม) · จ่ายไปแล้ว ${money(s.feesPaid)}`
+                        : `Performance fee ${s.feePercent}% (weekly, high-water mark) · paid ${money(s.feesPaid)}`}
+                    </p>
+                  )}
                   {s.status === "active" && s.lastSkip && (
                     <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-1.5">
                       <Clock className="w-3.5 h-3.5 mt-0.5 shrink-0" />
@@ -321,7 +344,7 @@ export function CopyTradingClient({ lang }: { lang: string }) {
                     <input type="number" min="0" step="1" value={apply.minAllocation} onChange={(e) => setApply({ ...apply, minAllocation: e.target.value })} className={inputCls} />
                   </label>
                 </div>
-                <p className="text-[11px] text-slate-400">{isth ? "ส่วนแบ่งกำไรจะเริ่มเก็บเมื่อระบบค่าธรรมเนียมเปิดใช้งาน · บัญชีนี้จะใช้คัดลอก Master คนอื่นไม่ได้" : "Fees start once fee settlement is enabled."}</p>
+                <p className="text-[11px] text-slate-400">{isth ? "ส่วนแบ่งกำไรคิดจากกำไรของผู้คัดลอก ตัดเข้าบัญชีนี้อัตโนมัติทุก 7 วัน (เฉพาะกำไรที่เกินจุดสูงสุดเดิม) · บัญชีนี้จะใช้คัดลอก Master คนอื่นไม่ได้" : "Fees are settled weekly with a high-water mark."}</p>
                 <button disabled={busy} className="w-full bg-slate-900 text-white font-black py-3 rounded-xl disabled:opacity-50">{isth ? "ส่งใบสมัคร" : "Submit"}</button>
               </>
             )}
@@ -340,6 +363,39 @@ export function CopyTradingClient({ lang }: { lang: string }) {
                   </span>
                 </div>
                 <p className="text-slate-500">{isth ? "ผู้คัดลอก" : "Copiers"} <b className="text-slate-800">{m.copiers}</b> · {isth ? "เงินที่คัดลอก" : "AUM"} <b className="text-slate-800">{money(m.aum)}</b> · ROI <b className="text-slate-800">{pct(m.roiTotal)}</b></p>
+              </div>
+            ))}
+            {earnings.filter((e) => e.status !== "rejected").map((e) => (
+              <div key={e.id} className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3 text-xs">
+                <p className="font-black text-slate-900 flex items-center gap-1.5"><Wallet className="w-4 h-4 text-[#b89766]" /> {isth ? "รายได้ของ" : "Earnings —"} {e.displayName}</p>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="bg-emerald-50 rounded-xl py-2"><p className="font-black font-mono text-emerald-700">{money(e.feesTotal)}</p><p className="text-[10px] text-slate-500 font-bold">{isth ? "ได้รับทั้งหมด" : "Total"}</p></div>
+                  <div className="bg-slate-50 rounded-xl py-2"><p className="font-black font-mono text-slate-900">{money(e.fees30d)}</p><p className="text-[10px] text-slate-500 font-bold">30 {isth ? "วันล่าสุด" : "days"}</p></div>
+                  <div className="bg-amber-50 rounded-xl py-2"><p className="font-black font-mono text-amber-700">{money(e.pendingFees)}</p><p className="text-[10px] text-slate-500 font-bold">{isth ? "รอตัดรอบนี้" : "Accruing"}</p></div>
+                </div>
+                <p className="text-[11px] text-slate-400">{isth ? `ส่วนแบ่ง ${e.feePercent}% ของกำไรผู้คัดลอก ตัดเข้าบัญชีนี้ทุก 7 วัน และตอนผู้คัดลอกหยุดคัดลอก` : `${e.feePercent}% of copier profit, settled weekly and when a copy stops`}</p>
+                {e.followers.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="font-bold text-slate-700">{isth ? "ผู้คัดลอก" : "Copiers"} ({e.followers.filter((f) => f.status === "active").length} {isth ? "คนที่ยังคัดลอกอยู่" : "active"})</p>
+                    {e.followers.slice(0, 10).map((f) => (
+                      <div key={f.id} className="flex items-center justify-between gap-2 border-t border-slate-100 pt-1.5">
+                        <span className="truncate">{f.name} <span className="text-slate-400">· {money(f.allocation)}{f.status !== "active" ? (isth ? " · หยุดแล้ว" : " · stopped") : ""}</span></span>
+                        <span className="shrink-0 font-mono"><span className={f.realizedPnl >= 0 ? "text-emerald-600" : "text-rose-600"}>{money(f.realizedPnl)}</span> · <b>{money(f.feesPaid)}</b></span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {e.payouts.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="font-bold text-slate-700">{isth ? "ประวัติการรับส่วนแบ่ง" : "Payouts"}</p>
+                    {e.payouts.slice(0, 10).map((p) => (
+                      <div key={p.ref} className="flex items-center justify-between gap-2 border-t border-slate-100 pt-1.5">
+                        <span className="truncate text-slate-500">{new Date(p.at).toLocaleDateString(isth ? "th-TH" : "en-GB")} · {p.follower} · {isth ? "กำไร" : "profit"} {money(p.profit)} × {p.feePercent}%</span>
+                        <b className="shrink-0 font-mono text-emerald-600">+{money(p.fee)}</b>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
             <div className="bg-[#fdfbf7] border border-[#e8d5b7] rounded-2xl p-4 text-[11px] text-slate-600 space-y-1.5">

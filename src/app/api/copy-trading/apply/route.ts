@@ -3,6 +3,7 @@ import { ObjectId } from "mongodb";
 import { getSession } from "@/lib/session";
 import { getDb } from "@/lib/mongodb";
 import { summarizeMaster } from "@/lib/copyTrading";
+import { notifyAdmins, thaiTime } from "@/lib/lineNotify";
 
 /** The signed-in user's master applications / profiles. */
 export async function GET() {
@@ -50,5 +51,9 @@ export async function POST(req: NextRequest) {
     displayName, description, feePercent, minAllocation: Math.round(minAllocation * 100) / 100,
     featured: false, status: "pending", createdAt: new Date(),
   });
+  void notifyAdmins(
+    `👑 สมัครเป็น Master Trader (รออนุมัติ)\nชื่อ: ${displayName}\nลูกค้า: ${session.firstName} ${session.lastName} (${session.email})\nบัญชี: #${account.accountNumber}\nส่วนแบ่งกำไร: ${feePercent}%\nเวลา: ${thaiTime()}`,
+    "copy",
+  );
   return NextResponse.json({ success: true });
 }

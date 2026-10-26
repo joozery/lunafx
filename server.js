@@ -458,6 +458,36 @@ const RISK_TOKEN = process.env.SESSION_SECRET
   ? crypto.createHash('sha256').update(`${process.env.SESSION_SECRET}:internal-risk`).digest('hex')
   : null;
 
+/* Copy-trading performance fees: checked hourly, each copy is settled once a week
+   (src/lib/copyTrading.ts settleDueFees). Runs wherever the risk engine runs. */
+const COPY_FEE_INTERVAL_MS = 60 * 60_000;
+const COPY_FEE_TOKEN = process.env.SESSION_SECRET
+  ? crypto.createHash('sha256').update(`${process.env.SESSION_SECRET}:internal-copy-fees`).digest('hex')
+  : null;
+
+function startCopyFeeLoop() {
+  if (!COPY_FEE_TOKEN) return;
+  const run = async () => {
+    try {
+      const res = await fetch(`http://127.0.0.1:${PORT}/api/internal/copy-fees`, {
+        method: 'POST',
+        headers: { 'x-internal-token': COPY_FEE_TOKEN },
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (res.ok) {
+        const { settled, total } = await res.json();
+        if (settled) console.log(`[copy-fees] settled ${settled} copies, $${total} charged`);
+      } else {
+        console.warn(`[copy-fees] HTTP ${res.status}`);
+      }
+    } catch (e) {
+      console.warn(`[copy-fees] failed: ${e.message}`);
+    }
+  };
+  setTimeout(run, 60_000);
+  setInterval(run, COPY_FEE_INTERVAL_MS);
+}
+
 function startRiskLoop() {
   const flag = (process.env.RISK_ENGINE || '').toLowerCase();
   const enabled = flag ? flag === 'on' : !dev;
@@ -465,7 +495,8 @@ function startRiskLoop() {
     console.log(`> Risk engine: OFF${RISK_TOKEN ? ' (set RISK_ENGINE=on to enable)' : ' (SESSION_SECRET missing)'}`);
     return;
   }
-  console.log(`> Risk engine: ON (SL/TP + stop-out every ${RISK_INTERVAL_MS / 1000}s)`);
+  console.log(`> Risk engine: ON (SL/TP + stop-out every ${RISK_INTERVAL_MS / 1000}s) + copy-trading fees hourly`);
+  startCopyFeeLoop();
 
   let running = false;
   setInterval(async () => {

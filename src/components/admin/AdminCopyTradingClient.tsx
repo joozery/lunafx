@@ -22,6 +22,7 @@ interface AdminMaster {
   riskScore: number;
   copiers: number;
   aum: number;
+  feesCollected: number;
   createdAt: string;
 }
 
@@ -49,7 +50,9 @@ export function AdminCopyTradingClient() {
     setBusy(m.id);
     const d = await fetch("/api/admin/copy-trading", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: m.id, ...body }) }).then((r) => r.json()).catch(() => null);
     setBusy(null);
-    setMessage(d?.success ? { ok: true, text: `อัปเดต ${m.displayName} แล้ว` } : { ok: false, text: d?.error ?? "ไม่สำเร็จ" });
+    setMessage(d?.success
+      ? { ok: true, text: body.action === "settle" ? `ตัดค่าส่วนแบ่ง ${m.displayName}: ${d.settled} ผู้คัดลอก รวม $${d.total}` : `อัปเดต ${m.displayName} แล้ว` }
+      : { ok: false, text: d?.error ?? "ไม่สำเร็จ" });
     setTimeout(() => setMessage(null), 4000);
     load();
   };
@@ -111,7 +114,7 @@ export function AdminCopyTradingClient() {
                   <div key={l} className="bg-slate-50 rounded-lg py-1.5"><p className="font-black font-mono text-slate-900">{v}</p><p className="text-[10px] text-slate-500 font-bold">{l}</p></div>
                 ))}
               </div>
-              <p className="text-slate-500">กำไรรวม <b className={m.totalPnl >= 0 ? "text-emerald-600" : "text-rose-600"}>{money(m.totalPnl)}</b> ({pct(m.roiTotal)}) · ส่วนแบ่ง {m.feePercent}% · ขั้นต่ำ {money(m.minAllocation)} · ความเสี่ยง {m.riskScore}/10</p>
+              <p className="text-slate-500">กำไรรวม <b className={m.totalPnl >= 0 ? "text-emerald-600" : "text-rose-600"}>{money(m.totalPnl)}</b> ({pct(m.roiTotal)}) · ส่วนแบ่ง {m.feePercent}% (เก็บแล้ว <b className="text-emerald-600">{money(m.feesCollected)}</b>) · ขั้นต่ำ {money(m.minAllocation)} · ความเสี่ยง {m.riskScore}/10</p>
               <div className="flex flex-wrap gap-2 pt-1">
                 {m.status === "pending" && (
                   <>
@@ -121,6 +124,7 @@ export function AdminCopyTradingClient() {
                 )}
                 {m.status === "active" && (
                   <>
+                    <button disabled={busy === m.id} onClick={() => act(m, { action: "settle" }, `ตัดค่าส่วนแบ่งกำไรของ ${m.displayName} ตอนนี้?\n(ปกติระบบตัดอัตโนมัติทุก 7 วัน)`)} className="flex-1 inline-flex items-center justify-center gap-1 py-2.5 rounded-xl border border-slate-200 font-bold disabled:opacity-50">ตัดค่าส่วนแบ่งตอนนี้</button>
                     <button disabled={busy === m.id} onClick={() => act(m, { featured: !m.featured })} className="flex-1 inline-flex items-center justify-center gap-1 py-2.5 rounded-xl border border-slate-200 font-bold disabled:opacity-50"><Crown className="w-4 h-4 text-amber-500" /> {m.featured ? "เลิกปักหมุด" : "ปักหมุดแนะนำ"}</button>
                     <button disabled={busy === m.id} onClick={() => act(m, { action: "suspend" }, `ระงับ ${m.displayName}?\nผู้คัดลอก ${m.copiers} คนจะหยุดคัดลอก และออเดอร์ที่คัดลอกอยู่จะถูกปิดที่ราคาตลาด`)} className="flex-1 inline-flex items-center justify-center gap-1 py-2.5 rounded-xl bg-rose-50 text-rose-600 font-bold disabled:opacity-50"><PauseCircle className="w-4 h-4" /> ระงับ</button>
                   </>

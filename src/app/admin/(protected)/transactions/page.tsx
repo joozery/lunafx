@@ -80,6 +80,9 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+// money leaving the customer's account
+const DEBIT_TYPES = new Set(["withdrawal", "copy_fee"]);
+
 const TXN_TYPE_LABEL: Record<string, string> = {
   deposit:    "ฝากเงิน",
   withdrawal: "ถอนเงิน",
@@ -87,6 +90,8 @@ const TXN_TYPE_LABEL: Record<string, string> = {
   bonus:      "โบนัสเงินฝาก",
   commission: "ค่าแนะนำเพื่อน",
   adjustment: "ปรับยอดติดลบ",
+  copy_fee:        "ส่วนแบ่ง Copy (หัก)",
+  copy_fee_income: "ส่วนแบ่ง Copy (รับ)",
 };
 
 export default function AdminTransactionsPage() {
@@ -211,8 +216,8 @@ export default function AdminTransactionsPage() {
                 </div>
                 <div className="flex items-end justify-between gap-3">
                   <div>
-                    <div className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full ${t.type === "withdrawal" ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>
-                      {t.type === "withdrawal" ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownLeft className="w-3 h-3" />}
+                    <div className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full ${DEBIT_TYPES.has(t.type) ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>
+                      {DEBIT_TYPES.has(t.type) ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownLeft className="w-3 h-3" />}
                       {TXN_TYPE_LABEL[t.type] ?? t.type}
                     </div>
                     <p className="text-[11px] text-gray-400 mt-1">{formatDate(t.createdAt)}</p>
@@ -288,8 +293,8 @@ export default function AdminTransactionsPage() {
                       ) : <span className="text-gray-400 text-xs">-</span>}
                     </td>
                     <td className="px-5 py-4">
-                      <div className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full ${t.type === "withdrawal" ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>
-                        {t.type === "withdrawal" ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownLeft className="w-3 h-3" />}
+                      <div className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full ${DEBIT_TYPES.has(t.type) ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>
+                        {DEBIT_TYPES.has(t.type) ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownLeft className="w-3 h-3" />}
                         {TXN_TYPE_LABEL[t.type] ?? t.type}
                       </div>
                     </td>

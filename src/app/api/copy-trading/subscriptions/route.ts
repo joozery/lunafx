@@ -5,6 +5,7 @@ import { getDb } from "@/lib/mongodb";
 import { calcTradePnl } from "@/lib/pnl";
 import { getConversionMids, getServerQuote } from "@/lib/quote";
 import { stopSubscription } from "@/lib/copyTrading";
+import { notifyAdmins, thaiTime } from "@/lib/lineNotify";
 
 /** The signed-in user's copies with live results. */
 export async function GET() {
@@ -47,6 +48,8 @@ export async function GET() {
         realizedPnl: Math.round((s.realizedPnl ?? 0) * 100) / 100,
         floatingPnl: Math.round(floating * 100) / 100,
         roi: s.allocation > 0 ? Math.round((total / s.allocation) * 10000) / 100 : 0,
+        feePercent: s.feePercent ?? null,
+        feesPaid: Math.round((s.feesPaid ?? 0) * 100) / 100,
         copiedTrades: s.copiedTrades ?? 0,
         skippedTrades: s.skippedTrades ?? 0,
         lastSkip: s.lastSkip ?? null,
@@ -105,10 +108,18 @@ export async function POST(req: NextRequest) {
     maxLossPercent,
     status: "active",
     realizedPnl: 0,
+    feePercent: master.feePercent ?? 0,
+    highWaterMark: 0,
+    feesPaid: 0,
+    lastSettledAt: null,
     copiedTrades: 0,
     skippedTrades: 0,
     startedAt: new Date(),
   });
+  void notifyAdmins(
+    `📋 เริ่มคัดลอกเทรด\nผู้คัดลอก: ${session.firstName} ${session.lastName} (#${account.accountNumber})\nMaster: ${master.displayName}\nเงินที่ใช้คัดลอก: $${allocation}\nเวลา: ${thaiTime()}`,
+    "copy",
+  );
   return NextResponse.json({ success: true, id: insertedId.toString() });
 }
 
