@@ -98,4 +98,6 @@ body {
   .admin-main table:not([data-keep-table]) > tbody > tr > td:first-child { text-align: left; }
   .admin-main table:not([data-keep-table]) > tbody > tr > td:first-child::before { content: none; }
   .admin-main table:not([data-keep-table]) > tbody > tr > td:first-child { justify-content: flex-start; font-size: 13px; }
+  /* full-width rows (empty / loading states) stay centred even though they are the first cell */
+  .admin-main table:not([data-keep-table]) > tbody > tr > td[colspan]:first-child { display: block; text-align: center; }
 }
