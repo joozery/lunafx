@@ -3,7 +3,10 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
+  PanelLeftClose,
+  PanelLeftOpen,
   LayoutDashboard,
   Users,
   ArrowLeftRight,
@@ -80,41 +83,70 @@ const NAV_GROUPS: { title: string; categoryKey: string; items: NavItem[] }[] = [
   },
 ];
 
+const COLLAPSE_KEY = "admin-sidebar-collapsed";
+
 export function AdminSidebar({ adminName }: { adminName: string }) {
   const pathname = usePathname();
   const isActive = (href: string, exact = false) =>
     exact ? pathname === href : pathname.startsWith(href);
 
+  // Collapsed = icon-only rail; remembered per browser
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    try { setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1"); } catch {}
+  }, []);
+  const toggle = () => {
+    setCollapsed((c) => {
+      try { localStorage.setItem(COLLAPSE_KEY, c ? "0" : "1"); } catch {}
+      return !c;
+    });
+  };
+
   return (
-    <aside className="w-[235px] shrink-0 hidden md:flex flex-col bg-white border-r border-slate-200/80 h-full shadow-2xs">
+    <aside className={`${collapsed ? "w-[68px]" : "w-[235px]"} shrink-0 hidden md:flex flex-col bg-white border-r border-slate-200/80 h-full shadow-2xs transition-[width] duration-200`}>
 
       {/* Compact Brand Header */}
-      <div className="px-4 py-3.5 border-b border-slate-100 bg-white">
-        <Link href="/admin" className="flex items-center justify-between group">
-          <Image
-            src="/logo/logoluna.svg"
-            alt="Lunaforex Admin"
-            width={120}
-            height={34}
-            className="h-7 w-auto object-contain transition-transform group-hover:scale-102"
-            priority
-          />
-          <span className="text-[9px] font-black text-[#b89766] bg-[#fdfbf7] border border-[#e8d5b7] px-1.5 py-0.5 rounded uppercase tracking-wider font-mono">
-            ADMIN
-          </span>
-        </Link>
+      <div className={`py-3.5 border-b border-slate-100 bg-white flex items-center gap-2 ${collapsed ? "px-2 flex-col" : "px-4"}`}>
+        {!collapsed && (
+          <Link href="/admin" className="flex items-center gap-2 group flex-1 min-w-0">
+            <Image
+              src="/logo/logoluna.svg"
+              alt="Lunaforex Admin"
+              width={120}
+              height={34}
+              className="h-7 w-auto object-contain transition-transform group-hover:scale-102"
+              priority
+            />
+            <span className="text-[9px] font-black text-[#b89766] bg-[#fdfbf7] border border-[#e8d5b7] px-1.5 py-0.5 rounded uppercase tracking-wider font-mono">
+              ADMIN
+            </span>
+          </Link>
+        )}
+        <button
+          type="button"
+          onClick={toggle}
+          title={collapsed ? "ขยายเมนู" : "พับเมนู"}
+          aria-label={collapsed ? "ขยายเมนู" : "พับเมนู"}
+          className="w-8 h-8 shrink-0 flex items-center justify-center rounded-lg text-slate-400 hover:text-[#b89766] hover:bg-[#fdfbf7] transition-colors"
+        >
+          {collapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+        </button>
       </div>
 
       {/* Compact Categorized Navigation List */}
-      <nav className="flex-1 overflow-y-auto px-2.5 py-3 space-y-4 [scrollbar-width:none] [::-webkit-scrollbar]:hidden">
+      <nav className={`flex-1 overflow-y-auto py-3 [scrollbar-width:none] [::-webkit-scrollbar]:hidden ${collapsed ? "px-2 space-y-2" : "px-2.5 space-y-4"}`}>
         {NAV_GROUPS.map((group) => (
           <div key={group.categoryKey} className="space-y-1">
             {/* Category Header */}
-            <div className="px-2 py-0.5">
-              <span className="text-[9px] font-black uppercase tracking-wider text-[#b89766] font-mono">
-                {group.title}
-              </span>
-            </div>
+            {collapsed ? (
+              <div className="mx-2 border-t border-slate-100" />
+            ) : (
+              <div className="px-2 py-0.5">
+                <span className="text-[9px] font-black uppercase tracking-wider text-[#b89766] font-mono">
+                  {group.title}
+                </span>
+              </div>
+            )}
 
             {/* Compact Menu Items */}
             <ul className="space-y-0.5">
@@ -124,7 +156,8 @@ export function AdminSidebar({ adminName }: { adminName: string }) {
                   <li key={item.href}>
                     <Link
                       href={item.href}
-                      className={`group relative flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl transition-all duration-150 ${
+                      title={collapsed ? item.label : undefined}
+                      className={`group relative flex items-center gap-2.5 py-1.5 rounded-xl transition-all duration-150 ${collapsed ? "justify-center px-0" : "px-2.5"} ${
                         active
                           ? "bg-gradient-to-r from-[#fdfbf7] via-[#f8f1e5] to-white border border-[#e6cda3] text-slate-900 shadow-2xs"
                           : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
@@ -147,7 +180,7 @@ export function AdminSidebar({ adminName }: { adminName: string }) {
                       </span>
 
                       {/* Compact Labels */}
-                      <div className="flex-1 min-w-0">
+                      <div className={`flex-1 min-w-0 ${collapsed ? "hidden" : ""}`}>
                         <div className="flex items-center justify-between">
                           <p
                             className={`text-[11px] font-bold leading-tight ${
@@ -183,11 +216,11 @@ export function AdminSidebar({ adminName }: { adminName: string }) {
 
       {/* Compact User Footer */}
       <div className="p-2.5 border-t border-slate-200/80 space-y-1.5 bg-slate-50/50">
-        <div className="flex items-center gap-2.5 p-2 rounded-xl bg-white border border-[#e8d5b7]/80 shadow-2xs">
+        <div title={collapsed ? adminName : undefined} className={`flex items-center gap-2.5 p-2 rounded-xl bg-white border border-[#e8d5b7]/80 shadow-2xs ${collapsed ? "justify-center" : ""}`}>
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#c6a87c] via-[#b89766] to-[#997a49] text-white text-[11px] font-black flex items-center justify-center shadow-xs shrink-0">
             {adminName[0]?.toUpperCase() || "A"}
           </div>
-          <div className="flex-1 min-w-0">
+          <div className={`flex-1 min-w-0 ${collapsed ? "hidden" : ""}`}>
             <p className="text-[11px] font-extrabold text-slate-900 truncate leading-tight">{adminName}</p>
             <p className="text-[9px] font-bold text-[#b89766] font-mono leading-none">Super Administrator</p>
           </div>
@@ -196,10 +229,11 @@ export function AdminSidebar({ adminName }: { adminName: string }) {
         <form action="/api/auth/logout" method="POST">
           <button
             type="submit"
+            title={collapsed ? "ออกจากระบบ" : undefined}
             className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-bold text-rose-600 hover:bg-rose-50 transition-all"
           >
             <LogOut className="w-3 h-3" />
-            <span>ออกจากระบบ</span>
+            {!collapsed && <span>ออกจากระบบ</span>}
           </button>
         </form>
       </div>
