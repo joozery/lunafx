@@ -132,7 +132,7 @@ export function FundsClient({ lang }: { lang: string }) {
 
     fetch("/api/transactions")
       .then((r) => r.json())
-      .then((d) => setRecentTxns((d.transactions ?? []).slice(0, 5)))
+      .then((d) => setRecentTxns((d.transactions ?? []).filter((t: RecentTxn & { type?: string }) => t.type === "deposit").slice(0, 5)))
       .catch(() => {});
 
     fetch("/api/bonus")
@@ -632,7 +632,7 @@ export function FundsClient({ lang }: { lang: string }) {
                       <StatusBadge status={tx.status} />
                     </div>
                     <div className="flex items-baseline justify-between pt-1">
-                      <span className="font-mono font-black text-slate-900 text-sm">฿{tx.amountThb.toLocaleString()}</span>
+                      <span className="font-mono font-black text-slate-900 text-sm">฿{(tx.amountThb ?? 0).toLocaleString()}</span>
                       <span className="font-mono text-xs font-bold text-emerald-600">${tx.amount} USD</span>
                     </div>
                   </div>

@@ -15,6 +15,9 @@ const TYPE_LABELS: Record<string, string> = {
   deposit:    "ฝากเงิน",
   withdrawal: "ถอนเงิน",
   transfer:   "โอนเงิน",
+  bonus:      "โบนัสเงินฝาก",
+  commission: "ค่าแนะนำเพื่อน",
+  adjustment: "ปรับยอดติดลบ",
 };
 
 function formatDate(d?: Date | string) {

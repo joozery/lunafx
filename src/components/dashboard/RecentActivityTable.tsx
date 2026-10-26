@@ -9,12 +9,13 @@ import {
   ChevronRight, 
   CheckCircle2, 
   Clock, 
-  XCircle
+  XCircle,
+  Gift
 } from "lucide-react";
 
 export interface TransactionItem {
   id: string;
-  type: "deposit" | "withdrawal" | "transfer";
+  type: "deposit" | "withdrawal" | "transfer" | "bonus" | "commission" | "adjustment";
   amount: number;
   currency: string;
   method?: string;
@@ -24,6 +25,12 @@ export interface TransactionItem {
   transactionId: string;
   createdAt: string;
 }
+
+const CREDIT_LABELS: Record<string, { th: string; en: string }> = {
+  bonus:      { th: "โบนัสเงินฝาก", en: "Deposit Bonus" },
+  commission: { th: "ค่าแนะนำเพื่อน", en: "Referral Commission" },
+  adjustment: { th: "ปรับยอดติดลบเป็น 0", en: "Balance Adjustment" },
+};
 
 const METHOD_NAMES: Record<string, string> = {
   promptpay: "Thai QR PromptPay",
@@ -115,7 +122,9 @@ export function RecentActivityTable({
       ) : (
         <div className="divide-y divide-gray-100 overflow-x-auto">
           {filtered.slice(0, 5).map((txn) => {
-            const isDeposit = txn.type === "deposit";
+            // Bonus, referral commission and negative-balance write-off all credit the account like a deposit
+            const credit = CREDIT_LABELS[txn.type];
+            const isDeposit = txn.type === "deposit" || !!credit;
             const isWithdrawal = txn.type === "withdrawal";
             const isTransfer = txn.type === "transfer";
 
@@ -135,7 +144,7 @@ export function RecentActivityTable({
                         : "bg-blue-50 text-blue-600 border-blue-200/60"
                     }`}
                   >
-                    {isDeposit && <ArrowDownToLine className="w-3.5 h-3.5" />}
+                    {isDeposit && (credit ? <Gift className="w-3.5 h-3.5" /> : <ArrowDownToLine className="w-3.5 h-3.5" />)}
                     {isWithdrawal && <ArrowUpFromLine className="w-3.5 h-3.5" />}
                     {isTransfer && <ArrowLeftRight className="w-3.5 h-3.5" />}
                   </div>
@@ -143,7 +152,9 @@ export function RecentActivityTable({
                   <div>
                     <div className="flex items-center gap-1.5">
                       <span className="font-semibold text-xs text-gray-900">
-                        {isDeposit
+                        {credit
+                          ? isth ? credit.th : credit.en
+                          : isDeposit
                           ? isth ? "ฝากเงิน" : "Deposit"
                           : isWithdrawal
                           ? isth ? "ถอนเงิน" : "Withdrawal"

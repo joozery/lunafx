@@ -80,6 +80,15 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+const TXN_TYPE_LABEL: Record<string, string> = {
+  deposit:    "ฝากเงิน",
+  withdrawal: "ถอนเงิน",
+  transfer:   "โอนเงิน",
+  bonus:      "โบนัสเงินฝาก",
+  commission: "ค่าแนะนำเพื่อน",
+  adjustment: "ปรับยอดติดลบ",
+};
+
 export default function AdminTransactionsPage() {
   const [txns, setTxns] = useState<Txn[]>([]);
   const [total, setTotal] = useState(0);
@@ -217,9 +226,9 @@ export default function AdminTransactionsPage() {
                       ) : <span className="text-gray-400 text-xs">-</span>}
                     </td>
                     <td className="px-5 py-4">
-                      <div className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full ${t.type === "deposit" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
-                        {t.type === "deposit" ? <ArrowDownLeft className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
-                        {t.type === "deposit" ? "ฝากเงิน" : "ถอนเงิน"}
+                      <div className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full ${t.type === "withdrawal" ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>
+                        {t.type === "withdrawal" ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownLeft className="w-3 h-3" />}
+                        {TXN_TYPE_LABEL[t.type] ?? t.type}
                       </div>
                     </td>
                     <td className="px-5 py-4 font-mono text-xs text-gray-600">{t.accountNumber ?? "-"}</td>

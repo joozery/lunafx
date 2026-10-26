@@ -4,6 +4,7 @@ import { getDb } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 import { hasLocale } from "@/dictionaries";
 import { DashboardOverviewClient } from "@/components/dashboard/DashboardOverviewClient";
+import type { TransactionItem } from "@/components/dashboard/RecentActivityTable";
 
 export default async function DashboardOverviewPage(props: { params: Promise<{ lang: string }> }) {
   const { lang } = await props.params;
@@ -53,7 +54,7 @@ export default async function DashboardOverviewPage(props: { params: Promise<{ l
 
   const transactions = rawTxns.map((t) => ({
     id: t._id.toString(),
-    type: t.type as "deposit" | "withdrawal" | "transfer",
+    type: t.type as TransactionItem["type"],
     amount: Number(t.amount) || 0,
     currency: "USD",
     method: t.method,
