@@ -93,7 +93,7 @@ body {
   /* cells without a header (action buttons) and full-width rows (empty / loading / expanded) */
   .admin-main table:not([data-keep-table]) > tbody > tr > td[data-label=""]::before { content: none; }
   .admin-main table:not([data-keep-table]) > tbody > tr > td[data-label=""] { justify-content: flex-end; }
-  .admin-main table:not([data-keep-table]) > tbody > tr > td[colspan] { display: block; text-align: left; }
+  .admin-main table:not([data-keep-table]) > tbody > tr > td[colspan] { display: block; text-align: center; }
   /* the first column (usually the name) leads the card */
   .admin-main table:not([data-keep-table]) > tbody > tr > td:first-child { text-align: left; }
   .admin-main table:not([data-keep-table]) > tbody > tr > td:first-child::before { content: none; }
