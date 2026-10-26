@@ -16,6 +16,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY server.js ./
+COPY lib ./lib
 
 EXPOSE 3002
 CMD ["node", "server.js"]
