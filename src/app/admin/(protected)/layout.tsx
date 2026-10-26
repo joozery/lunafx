@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/adminAuth";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
+import { AdminNotificationBell } from "@/components/admin/AdminNotificationBell";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const admin = await requireAdmin();
@@ -13,6 +14,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         {/* Top bar */}
         <header className="h-14 bg-white/80 backdrop-blur-sm border-b border-[#e8d4b0]/60 flex items-center px-6 shrink-0">
           <div className="ml-auto flex items-center gap-4">
+            <AdminNotificationBell />
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#c6a87c] to-[#9b8058] flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-sm shadow-[#c6a87c]/20">
                 {admin.firstName?.[0]?.toUpperCase()}
