@@ -12,7 +12,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <AdminSidebar adminName={`${admin.firstName} ${admin.lastName}`} />
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar */}
-        <header className="h-14 bg-white/80 backdrop-blur-sm border-b border-[#e8d4b0]/60 flex items-center px-6 shrink-0">
+        {/* relative z-40: backdrop-blur creates a stacking context, so without it the page content paints over the bell dropdown */}
+        <header className="relative z-40 h-14 bg-white/80 backdrop-blur-sm border-b border-[#e8d4b0]/60 flex items-center px-6 shrink-0">
           <div className="ml-auto flex items-center gap-4">
             <AdminNotificationBell />
             <div className="flex items-center gap-2.5">
