@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Building2, Save, CheckCircle2, RefreshCw, KeyRound, Lock, ShieldCheck, ArrowLeftRight } from "lucide-react";
+import { Building2, Save, CheckCircle2, RefreshCw, KeyRound, Lock, ShieldCheck, ArrowLeftRight, Upload, X } from "lucide-react";
 
 export const THAI_BANKS = [
   { code: "KBANK", name: "ธนาคารกสิกรไทย", nameEn: "Kasikorn Bank", color: "#138f2d", bg: "bg-[#138f2d]", short: "KBANK", logo: "/logobank/kbank.svg" },
@@ -28,6 +28,7 @@ export function AdminDepositBankClient() {
   const [accountName, setAccountName] = useState("บริษัท ลูนา ฟอเร็กซ์ จำกัด (Luna Forex Co., Ltd.)");
   const [promptpayQr, setPromptpayQr] = useState("");
   const [promptpayId, setPromptpayId] = useState("");
+  const [uploadingQr, setUploadingQr] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -129,6 +130,23 @@ export function AdminDepositBankClient() {
       console.error("Failed to load setting", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleQrUpload = async (file: File) => {
+    setUploadingQr(true);
+    setError("");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/admin/upload", { method: "POST", body: fd });
+      const data = await res.json();
+      if (data.publicUrl) setPromptpayQr(data.publicUrl);
+      else setError(data.error || "อัปโหลดไม่สำเร็จ");
+    } catch {
+      setError("อัปโหลดไม่สำเร็จ");
+    } finally {
+      setUploadingQr(false);
     }
   };
 
@@ -339,15 +357,33 @@ export function AdminDepositBankClient() {
               {/* PromptPay QR Code Image URL */}
               <div className="space-y-1">
                 <label className="font-bold text-slate-700 block">
-                  รูปภาพ QR Code พร้อมเพย์ (PromptPay QR Image URL - Option)
+                  รูปภาพ QR Code พร้อมเพย์ (ไม่บังคับ)
                 </label>
+                <div className="flex items-center gap-3">
+                  {promptpayQr && (
+                    <div className="relative shrink-0">
+                      <img src={promptpayQr} alt="QR" className="w-20 h-20 object-contain rounded-lg border border-slate-200 bg-white" />
+                      <button type="button" onClick={() => setPromptpayQr("")} aria-label="ลบรูป QR"
+                        className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                  <label className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-[#c6a87c] text-[#997a49] font-bold cursor-pointer hover:bg-[#fdfbf7] ${uploadingQr ? "opacity-50 pointer-events-none" : ""}`}>
+                    <Upload className="w-4 h-4" />
+                    {uploadingQr ? "กำลังอัปโหลด..." : promptpayQr ? "เปลี่ยนรูป QR" : "อัปโหลดรูป QR"}
+                    <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) handleQrUpload(f); e.target.value = ""; }} />
+                  </label>
+                </div>
                 <input
                   type="text"
                   value={promptpayQr}
                   onChange={(e) => setPromptpayQr(e.target.value)}
-                  placeholder="https://example.com/qr-promptpay.png"
+                  placeholder="หรือวางลิงก์รูป https://..."
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-mono text-slate-800 focus:outline-none focus:border-[#c6a87c]"
                 />
+                <p className="text-[11px] text-slate-400">อัปโหลดแล้วกด "บันทึกการตั้งค่าธนาคาร" ด้านล่างเพื่อใช้งาน · ถ้าใส่รหัสพร้อมเพย์ไว้ ลูกค้าจะได้ QR ที่ระบุยอดเงินอัตโนมัติด้วย</p>
               </div>
 
               {error && (
