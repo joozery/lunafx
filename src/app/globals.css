@@ -35,3 +35,50 @@ body {
   from { transform: translateX(-100%); }
   to { transform: translateX(0); }
 }
+
+/* Admin: on phones every table row becomes a card with labelled values
+   (labels come from AdminTableLabeler). Add data-keep-table to opt a table out. */
+@media (max-width: 767.98px) {
+  .admin-main table:not([data-keep-table]) { display: block; width: 100%; }
+  .admin-main table:not([data-keep-table]) > thead { display: none; }
+  .admin-main table:not([data-keep-table]) > tbody { display: block; padding: 8px; }
+  .admin-main table:not([data-keep-table]) > tbody > tr {
+    display: block;
+    background: #fff;
+    border: 1px solid #edf0f4;
+    border-radius: 14px;
+    padding: 6px 0;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.04);
+  }
+  .admin-main table:not([data-keep-table]) > tbody > tr > td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    min-width: 0;
+    padding: 7px 14px !important;
+    border: 0 !important;
+    text-align: right;
+    white-space: normal;
+  }
+  .admin-main table:not([data-keep-table]) > tbody > tr > td > * { min-width: 0; max-width: 100%; }
+  .admin-main table:not([data-keep-table]) > tbody > tr > td::before {
+    content: attr(data-label);
+    flex-shrink: 0;
+    max-width: 42%;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    color: #94a3b8;
+  }
+  /* cells without a header (action buttons) and full-width rows (empty / loading / expanded) */
+  .admin-main table:not([data-keep-table]) > tbody > tr > td[data-label=""]::before { content: none; }
+  .admin-main table:not([data-keep-table]) > tbody > tr > td[data-label=""] { justify-content: flex-end; }
+  .admin-main table:not([data-keep-table]) > tbody > tr > td[colspan] { display: block; text-align: left; }
+  /* the first column (usually the name) leads the card */
+  .admin-main table:not([data-keep-table]) > tbody > tr > td:first-child { text-align: left; }
+  .admin-main table:not([data-keep-table]) > tbody > tr > td:first-child::before { content: none; }
+  .admin-main table:not([data-keep-table]) > tbody > tr > td:first-child { justify-content: flex-start; font-size: 13px; }
+}

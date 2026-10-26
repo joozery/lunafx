@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/adminAuth";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { AdminNotificationBell } from "@/components/admin/AdminNotificationBell";
 import { AdminMobileShell } from "@/components/admin/AdminMobileShell";
+import { AdminTableLabeler } from "@/components/admin/AdminTableLabeler";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const admin = await requireAdmin();
@@ -30,8 +31,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </div>
         </header>
         {/* bottom padding on phones keeps content clear of the fixed tab bar */}
-        <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:p-6 md:pb-6 lg:p-8">
+        <main className="admin-main flex-1 overflow-y-auto overflow-x-hidden p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:p-6 md:pb-6 lg:p-8">
           {children}
+          <AdminTableLabeler />
         </main>
       </div>
     </div>
