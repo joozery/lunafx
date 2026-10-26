@@ -64,6 +64,23 @@ body {
     white-space: normal;
   }
   .admin-main table:not([data-keep-table]) > tbody > tr > td > * { min-width: 0; max-width: 100%; }
+  /* labelled cells: label in the left column, every value stacked in the right column */
+  .admin-main table:not([data-keep-table]) > tbody > tr > td:not(:first-child):not([data-label=""]):not([colspan]) {
+    display: grid;
+    grid-template-columns: minmax(72px, 38%) minmax(0, 1fr);
+    column-gap: 12px;
+    row-gap: 2px;
+    justify-items: end;
+    align-items: center;
+  }
+  .admin-main table:not([data-keep-table]) > tbody > tr > td:not(:first-child):not([data-label=""]):not([colspan]) > * { grid-column: 2; }
+  .admin-main table:not([data-keep-table]) > tbody > tr > td:not(:first-child):not([data-label=""]):not([colspan])::before {
+    grid-column: 1;
+    grid-row: 1 / span 6;
+    justify-self: start;
+    align-self: start;
+    max-width: none;
+  }
   .admin-main table:not([data-keep-table]) > tbody > tr > td::before {
     content: attr(data-label);
     flex-shrink: 0;
