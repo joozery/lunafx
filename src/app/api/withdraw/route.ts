@@ -78,6 +78,7 @@ export async function POST(req: NextRequest) {
   void notifyAdmins(
     `🏧 คำขอถอนเงิน\nลูกค้า: ${session.firstName} ${session.lastName ?? ""} (${session.email})\nบัญชีเทรด: #${accountNumber}\n` +
     `ยอด: $${amountUsd} ≈ ฿${(Math.round(amountUsd * withdrawRate * 100) / 100).toLocaleString()}\nโอนเข้า: ${bankName} ${bankAccountNumber} (${bankAccountName})\nRef: ${txnId}\nเวลา: ${thaiTime()}`,
+    "withdraw",
   );
 
   return NextResponse.json({ ok: true, transactionId: txnId });

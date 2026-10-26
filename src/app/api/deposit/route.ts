@@ -174,6 +174,7 @@ export async function POST(req: NextRequest) {
   void notifyAdmins(
     `💰 แจ้งฝากเงิน / ส่งสลิป\nลูกค้า: ${session.firstName} ${session.lastName ?? ""} (${session.email})\nบัญชีเทรด: #${accountNumber}\n` +
     `ยอด: ฿${amountThb.toLocaleString()} ≈ $${amountUsd}${bonusUsd > 0 ? ` (+โบนัส $${bonusUsd})` : ""}\n${statusLine}\nRef: ${txnId}\nสลิป: ${slipUrl}\nเวลา: ${thaiTime()}`,
+    "deposit",
   );
 
   return NextResponse.json({

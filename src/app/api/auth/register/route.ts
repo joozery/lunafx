@@ -47,6 +47,7 @@ export async function POST(req: NextRequest) {
     }
     void notifyAdmins(
       `🆕 สมาชิกใหม่สมัคร\nชื่อ: ${firstName.trim()} ${lastName.trim()}\nอีเมล: ${email.toLowerCase().trim()}\nโทร: ${phone.trim()}${referrerLine}\nเวลา: ${thaiTime()}`,
+      "signup",
     );
 
     await createSession({
