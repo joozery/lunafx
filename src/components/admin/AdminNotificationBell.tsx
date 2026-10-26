@@ -101,7 +101,9 @@ export function AdminNotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 w-[min(380px,calc(100vw-2rem))] bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden">
+        // Phones: a full-width sheet under the top bar (the bell is not at the screen edge, so an
+        // anchored dropdown would run off the left side). Larger screens: dropdown under the bell.
+        <div className="fixed inset-x-3 top-[calc(3.75rem+env(safe-area-inset-top))] sm:absolute sm:inset-x-auto sm:right-0 sm:top-11 sm:w-[380px] bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
             <p className="font-bold text-sm text-slate-900">การแจ้งเตือน</p>
             {unread > 0 && (
@@ -126,7 +128,8 @@ export function AdminNotificationBell() {
             </div>
           )}
 
-          <ul className="max-h-[60vh] overflow-y-auto divide-y divide-slate-50">
+          {/* leave room for the phone bottom tab bar */}
+          <ul className="max-h-[calc(100dvh-15rem)] sm:max-h-[60vh] overflow-y-auto overscroll-contain divide-y divide-slate-50">
             {!data ? (
               <li className="p-6 text-center text-xs text-slate-400">กำลังโหลด...</li>
             ) : data.items.length === 0 ? (
