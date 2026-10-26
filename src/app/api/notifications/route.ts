@@ -75,7 +75,7 @@ export async function GET(req: NextRequest) {
     ...txns.map(txnItem).filter((x): x is Item => x !== null),
     ...trades.map((t) => {
       const c = CLOSE[t.closeReason];
-      const pnl = `${t.pnl >= 0 ? "+" : ""}${usd(t.pnl)}`.replace("+$-", "-$");
+      const pnl = t.pnl >= 0 ? `+${usd(t.pnl)}` : `-${usd(-t.pnl)}`;
       return {
         id: `tr-${t._id}`, tone: c.tone, title: [c.th, c.en] as [string, string],
         detail: [`${t.symbol} ${String(t.type).toUpperCase()} ${t.volume} lot · ${pnl}`, `${t.symbol} ${String(t.type).toUpperCase()} ${t.volume} lot · ${pnl}`] as [string, string],
