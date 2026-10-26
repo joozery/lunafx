@@ -6,7 +6,8 @@ import { ObjectId } from "mongodb";
 import { hasLocale, type Locale } from "@/dictionaries";
 import { LogoutButton } from "@/components/LogoutButton";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
-import { Search, Bell, ArrowDownToLine, Server, Globe } from "lucide-react";
+import { Search, ArrowDownToLine, Server, Globe } from "lucide-react";
+import { NotificationBell } from "@/components/dashboard/NotificationBell";
 
 export default async function DashboardLayout(props: {
   children: React.ReactNode;
@@ -96,10 +97,7 @@ export default async function DashboardLayout(props: {
             </Link>
 
             {/* Notification Bell */}
-            <button className="relative p-2.5 text-slate-500 hover:text-slate-900 transition-colors bg-slate-100 hover:bg-slate-200 rounded-xl">
-              <Bell className="w-4 h-4" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white" />
-            </button>
+            <NotificationBell lang={lang} />
 
             {/* User Avatar & Logout */}
             <div className="flex items-center gap-3 pl-3 border-l border-slate-200">
