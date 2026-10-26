@@ -103,8 +103,8 @@ export function AdminNotificationBell() {
       {open && (
         // Phones: a full-width sheet under the top bar (the bell is not at the screen edge, so an
         // anchored dropdown would run off the left side). Larger screens: dropdown under the bell.
-        <div className="fixed inset-x-3 top-[calc(3.75rem+env(safe-area-inset-top))] sm:absolute sm:inset-x-auto sm:right-0 sm:top-11 sm:w-[380px] bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+        <div className="fixed inset-x-3 top-[calc(3.75rem+env(safe-area-inset-top))] max-h-[calc(100dvh-10rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))] flex flex-col sm:absolute sm:inset-x-auto sm:right-0 sm:top-11 sm:w-[380px] sm:max-h-none bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden">
+          <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-100">
             <p className="font-bold text-sm text-slate-900">การแจ้งเตือน</p>
             {unread > 0 && (
               <button type="button" onClick={markAllRead} className="flex items-center gap-1 text-[11px] font-bold text-[#b89766] hover:text-[#997a49]">
@@ -114,7 +114,7 @@ export function AdminNotificationBell() {
           </div>
 
           {pendingTotal > 0 && pending && (
-            <div className="grid grid-cols-3 gap-1.5 p-3 bg-amber-50/60 border-b border-amber-100 text-center">
+            <div className="shrink-0 grid grid-cols-3 gap-1.5 p-3 bg-amber-50/60 border-b border-amber-100 text-center">
               {[
                 { label: "ฝากรอตรวจ", n: pending.deposits, href: "/admin/transactions" },
                 { label: "ถอนรอโอน", n: pending.withdrawals, href: "/admin/transactions" },
@@ -128,8 +128,8 @@ export function AdminNotificationBell() {
             </div>
           )}
 
-          {/* leave room for the phone bottom tab bar */}
-          <ul className="max-h-[calc(100dvh-15rem)] sm:max-h-[60vh] overflow-y-auto overscroll-contain divide-y divide-slate-50">
+          {/* on phones the panel's max height (above the bottom tab bar) bounds the list */}
+          <ul className="flex-1 min-h-0 sm:max-h-[60vh] overflow-y-auto overscroll-contain divide-y divide-slate-50">
             {!data ? (
               <li className="p-6 text-center text-xs text-slate-400">กำลังโหลด...</li>
             ) : data.items.length === 0 ? (
