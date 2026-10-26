@@ -9,6 +9,10 @@ import {
   getBankAccountType,
   type Slip2GoStatus,
 } from "@/lib/slip2go";
+import { getExchangeRate } from "@/lib/exchangeRate";
+import { grantDepositBonus } from "@/lib/bonus";
+import { recordReferralCommission } from "@/lib/referral";
+import { notifyAdmins, thaiTime } from "@/lib/lineNotify";
 
 const ALLOWED_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -33,7 +37,6 @@ export async function POST(req: NextRequest) {
   const formData = await req.formData();
   const slip        = formData.get("slip") as File | null;
   const amountThb   = parseFloat((formData.get("amountThb") as string) ?? "0");
-  const amountUsd   = parseFloat((formData.get("amountUsd") as string) ?? "0");
   const accountNumber = (formData.get("accountNumber") as string)?.trim();
 
   if (!slip)                           return NextResponse.json({ error: "กรุณาแนบสลิปโอนเงิน" }, { status: 400 });
@@ -43,9 +46,15 @@ export async function POST(req: NextRequest) {
 
   const buffer = Buffer.from(await slip.arrayBuffer());
 
-  /* ── Slip2Go verification ── */
   const db = await getDb();
-  const bankSetting = await db.collection("settings").findOne({ key: "depositBank" });
+
+  // Never trust a USD amount from the client — derive it from the THB amount
+  const { depositRate } = await getExchangeRate(db);
+  const amountUsd = Math.round((amountThb / depositRate) * 100) / 100;
+
+  /* ── Slip2Go verification ── */
+  const bankDoc = await db.collection("settings").findOne({ key: "depositBank" });
+  const bankSetting = bankDoc?.value as { bankCode?: string; accountNumber?: string } | undefined;
 
   let slip2goStatus: Slip2GoStatus = "unavailable";
   let slip2goCode: string | undefined;
@@ -57,9 +66,9 @@ export async function POST(req: NextRequest) {
 
     // Only check receiver when account number is configured — partial config causes false mismatch
     const cleanAccNum = bankSetting?.accountNumber?.replace(/[^0-9]/g, "") ?? "";
+    // Name is left out on purpose: slips show a truncated name, which would cause false mismatches
     const receiver = (accountType && cleanAccNum) ? [{
       accountType,
-      ...(bankSetting?.accountName ? { accountNameTH: bankSetting.accountName } : {}),
       accountNumber: cleanAccNum,
     }] : undefined;
 
@@ -94,13 +103,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: errMsg, slip2goCode: result.code }, { status: 400 });
     }
 
-    // not_found → slip too fresh in PromptPay system, treat as verified (auto-approve)
-    // bank_error / auth_error / unavailable → fall through to pending (manual review)
-    if (result.status === "not_found") {
-      slip2goStatus = "not_found";
-      slip2goCode   = result.code;
-      slip2goData   = result.data;
-    }
+    // not_found / bank_error / auth_error / unavailable → fall through to pending (manual review)
   }
 
   /* ── Upload slip → R2 ── */
@@ -117,19 +120,19 @@ export async function POST(req: NextRequest) {
   /* ── Save transaction ── */
   const txnId = `DEP-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
-  // verified / not_found → auto-complete and credit immediately
-  // not_found = slip too fresh; PromptPay hasn't indexed it yet but it's real
-  // unavailable / auth_error / bank_error → pending (manual admin review)
-  const autoApprove = slip2goStatus === "verified" || slip2goStatus === "not_found";
+  // Only a slip Slip2Go confirmed is credited immediately. not_found can also mean a
+  // fabricated slip, so it goes to manual review with the other non-verified states.
+  const autoApprove = slip2goStatus === "verified";
   const txStatus = autoApprove ? "completed" : "pending";
 
-  await db.collection("transactions").insertOne({
+  const { insertedId: depositTxnId } = await db.collection("transactions").insertOne({
     userId:          new ObjectId(session.userId),
     type:            "deposit",
     method:          "bank_slip",
     accountNumber,
     amountThb,
     amount:          amountUsd,
+    exchangeRate:    depositRate,
     slipUrl,
     slipKey,
     status:          txStatus,
@@ -156,10 +159,28 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  let bonusUsd = 0;
+  if (autoApprove) {
+    const txn = await db.collection("transactions").findOne({ _id: depositTxnId });
+    if (txn) {
+      bonusUsd = await grantDepositBonus(db, txn).catch((e) => { console.error("[deposit] bonus failed:", e); return 0; });
+      await recordReferralCommission(db, txn).catch((e) => console.error("[deposit] referral failed:", e));
+    }
+  }
+
+  const statusLine = autoApprove
+    ? "✅ อนุมัติอัตโนมัติ (Slip2Go ตรวจผ่าน)"
+    : `⏳ รอแอดมินตรวจสอบ (Slip2Go: ${slip2goStatus})`;
+  void notifyAdmins(
+    `💰 แจ้งฝากเงิน / ส่งสลิป\nลูกค้า: ${session.firstName} ${session.lastName ?? ""} (${session.email})\nบัญชีเทรด: #${accountNumber}\n` +
+    `ยอด: ฿${amountThb.toLocaleString()} ≈ $${amountUsd}${bonusUsd > 0 ? ` (+โบนัส $${bonusUsd})` : ""}\n${statusLine}\nRef: ${txnId}\nสลิป: ${slipUrl}\nเวลา: ${thaiTime()}`,
+  );
+
   return NextResponse.json({
     ok: true,
     transactionId: txnId,
     slip2goStatus,
     autoApproved: autoApprove,
+    bonusUsd,
   });
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
@@ -14,6 +14,13 @@ export function OpenAccountForm({ dict, lang }: { dict: OpenAccountDictionary; l
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [referralCode, setReferralCode] = useState("");
+
+  // Prefill from a referral link (?ref=CODE); the server also remembers it in a cookie
+  useEffect(() => {
+    const ref = new URLSearchParams(window.location.search).get("ref");
+    if (ref) setReferralCode(ref.toUpperCase());
+  }, []);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -32,6 +39,7 @@ export function OpenAccountForm({ dict, lang }: { dict: OpenAccountDictionary; l
       email: (form.elements.namedItem("email") as HTMLInputElement).value,
       phone: (form.elements.namedItem("phone") as HTMLInputElement).value,
       password,
+      referralCode: referralCode.trim() || undefined,
     };
 
     try {
@@ -87,6 +95,21 @@ export function OpenAccountForm({ dict, lang }: { dict: OpenAccountDictionary; l
           {dict.phoneLabel}
         </label>
         <input id="phone" name="phone" type="tel" required placeholder={dict.phonePlaceholder} className={inputClass} />
+      </div>
+
+      <div>
+        <label htmlFor="referralCode" className="block text-sm font-medium text-gray-300 mb-2">
+          {lang === "th" ? "รหัสผู้แนะนำ (ถ้ามี)" : "Referral code (optional)"}
+        </label>
+        <input
+          id="referralCode"
+          name="referralCode"
+          type="text"
+          value={referralCode}
+          onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+          maxLength={16}
+          className={`${inputClass} font-mono tracking-wider`}
+        />
       </div>
 
       <div>

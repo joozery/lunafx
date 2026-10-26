@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import QRCode from "qrcode";
+import { buildPromptPayPayload, isValidPromptPayId } from "@/lib/promptpay";
+import { calcBonus, requiredLots, type BonusSetting } from "@/lib/bonusRules";
 import {
   Upload, CheckCircle2, Clock, AlertCircle, Copy, Building2,
   ChevronDown, X, ImageIcon, History, ArrowDownToLine, RefreshCw, QrCode,
@@ -34,6 +37,7 @@ interface BankSetting {
   accountNumber: string;
   accountName: string;
   promptpayQr?: string;
+  promptpayId?: string;
 }
 
 const THAI_BANKS: Record<string, { name: string; nameEn: string; color: string; short: string; logo: string }> = {
@@ -62,7 +66,7 @@ const DEFAULT_BANK: BankSetting = {
   promptpayQr: "",
 };
 
-const THB_RATE = 35; // 1 USD = 35 THB
+const DEFAULT_THB_RATE = 35; // fallback until /api/settings/exchange-rate loads
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { cls: string; label: string }> = {
@@ -83,6 +87,8 @@ export function FundsClient({ lang }: { lang: string }) {
   const [loadingAccounts, setLoadingAccounts] = useState(true);
 
   const [bankSetting, setBankSetting] = useState<BankSetting>(DEFAULT_BANK);
+  const [THB_RATE, setThbRate] = useState(DEFAULT_THB_RATE);
+  const [bonusOffer, setBonusOffer] = useState<Omit<BonusSetting, "enabled"> | null>(null);
 
   const [selectedAccount, setSelectedAccount] = useState<TradingAccount | null>(null);
   const [showAccountDrop, setShowAccountDrop] = useState(false);
@@ -91,11 +97,28 @@ export function FundsClient({ lang }: { lang: string }) {
   const [slipPreview, setSlipPreview] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
-  const [success, setSuccess] = useState<{ txnId: string; autoApproved: boolean; slip2goStatus: string } | null>(null);
+  const [success, setSuccess] = useState<{ txnId: string; autoApproved: boolean; slip2goStatus: string; bonusUsd: number } | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
   const amountUsd = amountThb ? (parseFloat(amountThb) / THB_RATE).toFixed(2) : "0.00";
+
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const promptpayId = bankSetting.promptpayId ?? "";
+  const qrAmount = parseFloat(amountThb);
+  const canShowQr = isValidPromptPayId(promptpayId) && qrAmount >= 500;
+
+  useEffect(() => {
+    if (!canShowQr) { setQrDataUrl(null); return; }
+    let cancelled = false;
+    // small debounce so the QR doesn't regenerate on every keystroke
+    const t = setTimeout(() => {
+      QRCode.toDataURL(buildPromptPayPayload(promptpayId, qrAmount), { width: 480, margin: 1 })
+        .then((url) => { if (!cancelled) setQrDataUrl(url); })
+        .catch(() => { if (!cancelled) setQrDataUrl(null); });
+    }, 250);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [canShowQr, promptpayId, qrAmount]);
 
   useEffect(() => {
     fetch("/api/accounts")
@@ -110,6 +133,16 @@ export function FundsClient({ lang }: { lang: string }) {
     fetch("/api/transactions")
       .then((r) => r.json())
       .then((d) => setRecentTxns((d.transactions ?? []).slice(0, 5)))
+      .catch(() => {});
+
+    fetch("/api/bonus")
+      .then((r) => r.json())
+      .then((d) => setBonusOffer(d.offer ?? null))
+      .catch(() => {});
+
+    fetch("/api/settings/exchange-rate")
+      .then((r) => r.json())
+      .then((d) => { if (d.rate?.depositRate > 0) setThbRate(d.rate.depositRate); })
       .catch(() => {});
 
     fetch("/api/settings/deposit-bank")
@@ -144,13 +177,12 @@ export function FundsClient({ lang }: { lang: string }) {
       const fd = new FormData();
       fd.append("slip", slip);
       fd.append("amountThb", amountThb);
-      fd.append("amountUsd", amountUsd);
       fd.append("accountNumber", selectedAccount.accountNumber);
 
       const res = await fetch("/api/deposit", { method: "POST", body: fd });
       const data = await res.json();
       if (data.ok) {
-        setSuccess({ txnId: data.transactionId, autoApproved: data.autoApproved, slip2goStatus: data.slip2goStatus ?? "unavailable" });
+        setSuccess({ txnId: data.transactionId, autoApproved: data.autoApproved, slip2goStatus: data.slip2goStatus ?? "unavailable", bonusUsd: data.bonusUsd ?? 0 });
         setAmountThb("");
         setSlip(null);
         setSlipPreview(null);
@@ -175,7 +207,7 @@ export function FundsClient({ lang }: { lang: string }) {
 
   /* ── SUCCESS STATE ── */
   if (success) {
-    const { txnId, autoApproved, slip2goStatus } = success;
+    const { txnId, autoApproved, slip2goStatus, bonusUsd } = success;
 
     const slip2goLabel: Record<string, { th: string; cls: string }> = {
       verified:    { th: "✓ Slip2Go ตรวจสอบผ่านแล้ว",               cls: "bg-emerald-50 border-emerald-200 text-emerald-700" },
@@ -206,6 +238,11 @@ export function FundsClient({ lang }: { lang: string }) {
         <div className={`inline-flex items-center gap-2 px-4 py-2 border rounded-full text-xs font-bold ${badge.cls}`}>
           {badge.th}
         </div>
+        {bonusUsd > 0 && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-sm font-bold text-emerald-700">
+            🎁 {isth ? `ได้รับโบนัส +$${bonusUsd} เข้าบัญชีแล้ว` : `Bonus +$${bonusUsd} credited`}
+          </div>
+        )}
         <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs font-mono font-bold text-slate-700">
           Ref ID: {txnId}
         </div>
@@ -436,7 +473,74 @@ export function FundsClient({ lang }: { lang: string }) {
                   ≈ ${amountUsd} USD <span className="text-slate-400">(อัตราแลกเปลี่ยน ฿{THB_RATE}/USD)</span>
                 </p>
               )}
+
+              {bonusOffer && (() => {
+                const offer = { ...bonusOffer, enabled: true };
+                const bonus = calcBonus(offer, parseFloat(amountUsd));
+                const minThb = Math.ceil(bonusOffer.minDepositUsd * THB_RATE);
+                return (
+                  <div className={`rounded-xl border p-3 text-xs ${bonus > 0 ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-[#fdfbf7] border-[#e8d5b7] text-[#997a49]"}`}>
+                    {bonus > 0 ? (
+                      <>
+                        <p className="font-black">🎁 {isth ? `ได้รับโบนัส +$${bonus} (รวมเป็น $${(parseFloat(amountUsd) + bonus).toFixed(2)})` : `Bonus +$${bonus} (total $${(parseFloat(amountUsd) + bonus).toFixed(2)})`}</p>
+                        <p className="mt-1">
+                          {isth
+                            ? `ต้องเทรดครบ ${requiredLots(offer, bonus)} lots ก่อนจึงจะถอนเงินได้${bonusOffer.maxWithdrawUsd > 0 ? ` · ถอนได้สูงสุด $${bonusOffer.maxWithdrawUsd}` : ""}`
+                            : `Trade ${requiredLots(offer, bonus)} lots before withdrawing${bonusOffer.maxWithdrawUsd > 0 ? ` · max withdrawal $${bonusOffer.maxWithdrawUsd}` : ""}`}
+                          {bonusOffer.firstDepositOnly && (isth ? " · เฉพาะการฝากครั้งแรก" : " · first deposit only")}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="font-bold">
+                        🎁 {isth ? `ฝากตั้งแต่ $${bonusOffer.minDepositUsd} (≈ ฿${minThb.toLocaleString()}) รับโบนัสเพิ่ม` : `Deposit $${bonusOffer.minDepositUsd}+ to get a bonus`}
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
+
+            {/* PromptPay QR with the amount baked in */}
+            {isValidPromptPayId(promptpayId) && (
+              <div className="border border-[#e8d5b7] rounded-xl p-4 bg-white flex flex-col sm:flex-row items-center gap-4">
+                {qrDataUrl ? (
+                  <img src={qrDataUrl} alt="PromptPay QR" className="w-48 h-48 shrink-0 rounded-lg border border-slate-100" />
+                ) : (
+                  <div className="w-48 h-48 shrink-0 rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-2 text-slate-400">
+                    <QrCode className="w-8 h-8" />
+                    <span className="text-[11px] font-bold text-center px-4">
+                      {isth ? "กรอกจำนวนเงินขั้นต่ำ ฿500 เพื่อสร้าง QR" : "Enter at least ฿500 to generate QR"}
+                    </span>
+                  </div>
+                )}
+                <div className="space-y-2 text-center sm:text-left">
+                  <p className="font-bold text-slate-900 text-sm flex items-center gap-1.5 justify-center sm:justify-start">
+                    <QrCode className="w-4 h-4 text-[#003d6b]" />
+                    {isth ? "สแกนจ่ายด้วยพร้อมเพย์" : "Scan to pay with PromptPay"}
+                  </p>
+                  {qrDataUrl && (
+                    <p className="text-2xl font-black font-mono text-slate-900">
+                      ฿{qrAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  )}
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    {isth
+                      ? "สแกน QR ด้วยแอปธนาคารใดก็ได้ ยอดเงินจะถูกกรอกให้อัตโนมัติ จากนั้นแนบสลิปในขั้นตอนที่ 3"
+                      : "Scan with any Thai banking app — the amount is pre-filled. Then upload the slip in step 3."}
+                  </p>
+                  {qrDataUrl && (
+                    <a
+                      href={qrDataUrl}
+                      download={`promptpay-${qrAmount}.png`}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-[#b89766] hover:text-[#997a49]"
+                    >
+                      <ArrowDownToLine className="w-3.5 h-3.5" />
+                      {isth ? "บันทึกรูป QR" : "Save QR image"}
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Step 3: Attach Payment Slip */}

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { getDb } from "@/lib/mongodb";
-import { PNL_FACTOR, calcTradePnl, marginRequired, parseLeverage } from "@/lib/pnl";
-import { getServerQuote } from "@/lib/quote";
+import { SYMBOL_SPECS, marginRequired, parseLeverage } from "@/lib/pnl";
+import { getConversionMids, getServerQuote } from "@/lib/quote";
+import { closeTrade } from "@/lib/trading";
+import { slTpHit } from "@/lib/risk";
 import { ObjectId } from "mongodb";
 
 export async function GET(req: NextRequest) {
@@ -42,6 +44,7 @@ export async function GET(req: NextRequest) {
     closeTime: d.closeTime ?? null,
     closePrice: d.closePrice ?? null,
     pnl: d.pnl ?? null,
+    closeReason: d.closeReason ?? null,
   }));
 
   return NextResponse.json({ ok: true, trades });
@@ -69,7 +72,7 @@ export async function POST(req: NextRequest) {
   if (typeof accountId !== "string" || !ObjectId.isValid(accountId)) {
     return NextResponse.json({ ok: false, error: "invalid account" }, { status: 400 });
   }
-  if (typeof symbol !== "string" || !Object.hasOwn(PNL_FACTOR, symbol)) {
+  if (typeof symbol !== "string" || !Object.hasOwn(SYMBOL_SPECS, symbol)) {
     return NextResponse.json({ ok: false, error: "unknown symbol" }, { status: 400 });
   }
   if (type !== "buy" && type !== "sell") {
@@ -90,6 +93,14 @@ export async function POST(req: NextRequest) {
   if (!quote) return NextResponse.json({ ok: false, error: NO_PRICE }, { status: 503 });
   const openPrice = type === "buy" ? quote.ask : quote.bid;
 
+  // SL/TP already on the wrong side of the market would close the position the moment it opens
+  if (slTpHit(type, sl, tp, quote)) {
+    const msg = type === "buy"
+      ? `ออเดอร์ Buy: SL ต้องต่ำกว่า ${quote.bid} และ TP ต้องสูงกว่า ${quote.bid}`
+      : `ออเดอร์ Sell: SL ต้องสูงกว่า ${quote.ask} และ TP ต้องต่ำกว่า ${quote.ask}`;
+    return NextResponse.json({ ok: false, error: msg }, { status: 400 });
+  }
+
   const db = await getDb();
   const userId = new ObjectId(session.userId);
   const accounts = db.collection("accounts");
@@ -100,7 +111,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Reserve margin atomically; fails when free margin is insufficient. Balance itself only moves on close.
-  const margin = marginRequired(symbol, vol, openPrice, parseLeverage(account.leverage));
+  const margin = marginRequired(symbol, vol, openPrice, parseLeverage(account.leverage), await getConversionMids([symbol]));
   const reserved = await accounts.findOneAndUpdate(
     { _id: account._id, userId, freeMargin: { $gte: margin } },
     { $inc: { freeMargin: -margin } },
@@ -153,31 +164,10 @@ export async function PATCH(req: NextRequest) {
   // Close at the server's own price: buy closes at bid, sell at ask. Any price from the browser is ignored.
   const quote = await getServerQuote(trade.symbol);
   if (!quote) return NextResponse.json({ ok: false, error: NO_PRICE }, { status: 503 });
-  const closePrice = trade.type === "buy" ? quote.bid : quote.ask;
-  const pnl = round2(calcTradePnl(trade.type, trade.symbol, trade.openPrice, closePrice, trade.volume));
 
-  // Claim the trade first so a double click / retry can never credit the account twice
-  const claimed = await trades.findOneAndUpdate(
-    { _id: trade._id, status: "open" },
-    { $set: { status: "closed", closePrice, closeTime: new Date(), pnl } },
-  );
-  if (!claimed) return NextResponse.json({ ok: false, error: "already closed" }, { status: 409 });
-
-  // Realise the result on the account: balance/equity take the P&L, free margin also gets the reserved margin back
-  try {
-    if (ObjectId.isValid(trade.accountId)) {
-      await db.collection("accounts").updateOne(
-        { _id: new ObjectId(trade.accountId), userId },
-        { $inc: { balance: pnl, equity: pnl, freeMargin: pnl + (trade.margin ?? 0) } },
-      );
-    }
-  } catch {
-    await trades.updateOne(
-      { _id: trade._id },
-      { $set: { status: "open" }, $unset: { closePrice: "", closeTime: "", pnl: "" } },
-    );
-    return NextResponse.json({ ok: false, error: "failed to update account" }, { status: 500 });
-  }
+  const result = await closeTrade(db, trade, quote, "manual");
+  if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
+  const { pnl, closePrice } = result;
 
   return NextResponse.json({ ok: true, pnl, closePrice });
 }

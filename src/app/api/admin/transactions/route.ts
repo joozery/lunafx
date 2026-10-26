@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { grantDepositBonus } from "@/lib/bonus";
+import { recordReferralCommission } from "@/lib/referral";
 import { requireAdmin } from "@/lib/adminAuth";
 import { getDb } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
@@ -55,13 +57,13 @@ export async function PATCH(req: NextRequest) {
 
   const db = await getDb();
 
-  const txn = await db.collection("transactions").findOne({ _id: new ObjectId(id) });
-  if (!txn) return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
-
-  await db.collection("transactions").updateOne(
+  // Atomic: returns the document as it was *before* this update, so two clicks
+  // on "approve" can never both see a non-completed deposit and credit it twice
+  const txn = await db.collection("transactions").findOneAndUpdate(
     { _id: new ObjectId(id) },
-    { $set: { status, adminNotes: adminNotes ?? "", updatedAt: new Date() } }
+    { $set: { status, adminNotes: adminNotes ?? "", updatedAt: new Date() } },
   );
+  if (!txn) return NextResponse.json({ error: "Transaction not found" }, { status: 404 });
 
   /* อนุมัติฝาก → เติมยอดในบัญชีเทรด (only if not already auto-approved by Slip2Go) */
   if (status === "completed" && txn.type === "deposit" && txn.accountNumber && txn.amount > 0
@@ -73,6 +75,8 @@ export async function PATCH(req: NextRequest) {
     if (r.matchedCount === 0) {
       console.error(`[admin/txn] no account found for accountNumber=${txn.accountNumber}`);
     }
+    await grantDepositBonus(db, { ...txn, status: "completed" }).catch((e) => console.error("[admin/txn] bonus failed:", e));
+    await recordReferralCommission(db, txn).catch((e) => console.error("[admin/txn] referral failed:", e));
   }
 
   /* ปฏิเสธถอน → คืนยอดให้ user (ยอดถูกหักไปแล้วตอนส่งคำขอ) */

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Building2, Save, CheckCircle2, RefreshCw, KeyRound, Lock, ShieldCheck } from "lucide-react";
+import { Building2, Save, CheckCircle2, RefreshCw, KeyRound, Lock, ShieldCheck, ArrowLeftRight } from "lucide-react";
 
 export const THAI_BANKS = [
   { code: "KBANK", name: "ธนาคารกสิกรไทย", nameEn: "Kasikorn Bank", color: "#138f2d", bg: "bg-[#138f2d]", short: "KBANK", logo: "/logobank/kbank.svg" },
@@ -27,11 +27,23 @@ export function AdminDepositBankClient() {
   const [accountNumber, setAccountNumber] = useState("098-1-23456-7");
   const [accountName, setAccountName] = useState("บริษัท ลูนา ฟอเร็กซ์ จำกัด (Luna Forex Co., Ltd.)");
   const [promptpayQr, setPromptpayQr] = useState("");
+  const [promptpayId, setPromptpayId] = useState("");
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
+
+  // Exchange Rate State
+  const [rateMode, setRateMode] = useState<"live" | "fixed">("fixed");
+  const [depositRate, setDepositRate] = useState("35");
+  const [withdrawRate, setWithdrawRate] = useState("35");
+  const [depositMarkup, setDepositMarkup] = useState("0.5");
+  const [withdrawMarkup, setWithdrawMarkup] = useState("0.5");
+  const [marketRate, setMarketRate] = useState<number | null>(null);
+  const [savingRate, setSavingRate] = useState(false);
+  const [rateSuccess, setRateSuccess] = useState(false);
+  const [rateError, setRateError] = useState("");
 
   // PIN Management State
   const [newPin, setNewPin] = useState("");
@@ -42,7 +54,62 @@ export function AdminDepositBankClient() {
 
   useEffect(() => {
     fetchSetting();
+    fetchRate();
   }, []);
+
+  const fetchRate = async () => {
+    try {
+      const res = await fetch("/api/admin/settings/exchange-rate");
+      const data = await res.json();
+      if (data.setting) {
+        setRateMode(data.setting.mode === "live" ? "live" : "fixed");
+        setDepositRate(String(data.setting.depositRate));
+        setWithdrawRate(String(data.setting.withdrawRate));
+        setDepositMarkup(String(data.setting.depositMarkup));
+        setWithdrawMarkup(String(data.setting.withdrawMarkup));
+      }
+      setMarketRate(data.rate?.marketRate ?? null);
+    } catch (err) {
+      console.error("Failed to load exchange rate", err);
+    }
+  };
+
+  const handleSaveRate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingRate(true);
+    setRateError("");
+    setRateSuccess(false);
+
+    try {
+      const res = await fetch("/api/admin/settings/exchange-rate", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: rateMode,
+          depositRate: parseFloat(depositRate),
+          withdrawRate: parseFloat(withdrawRate),
+          depositMarkup: parseFloat(depositMarkup),
+          withdrawMarkup: parseFloat(withdrawMarkup),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setRateSuccess(true);
+        setTimeout(() => setRateSuccess(false), 3000);
+        fetchRate();
+      } else {
+        setRateError(data.error || "เกิดข้อผิดพลาดในการบันทึก");
+      }
+    } catch (err) {
+      setRateError("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้");
+    } finally {
+      setSavingRate(false);
+    }
+  };
+
+  // Effective rates for the preview: live = market ± margin, fixed = as typed
+  const depRateNum = rateMode === "live" && marketRate ? marketRate + (parseFloat(depositMarkup) || 0) : parseFloat(depositRate);
+  const wdrRateNum = rateMode === "live" && marketRate ? marketRate - (parseFloat(withdrawMarkup) || 0) : parseFloat(withdrawRate);
 
   const fetchSetting = async () => {
     setLoading(true);
@@ -56,6 +123,7 @@ export function AdminDepositBankClient() {
         setAccountNumber(data.setting.accountNumber || "");
         setAccountName(data.setting.accountName || "");
         setPromptpayQr(data.setting.promptpayQr || "");
+        setPromptpayId(data.setting.promptpayId || "");
       }
     } catch (err) {
       console.error("Failed to load setting", err);
@@ -90,6 +158,7 @@ export function AdminDepositBankClient() {
           accountNumber,
           accountName,
           promptpayQr,
+          promptpayId,
         }),
       });
 
@@ -249,6 +318,24 @@ export function AdminDepositBankClient() {
                 />
               </div>
 
+              {/* PromptPay ID — used to generate a QR with the deposit amount */}
+              <div className="space-y-1">
+                <label className="font-bold text-slate-700 block">
+                  รหัสพร้อมเพย์ (เบอร์มือถือ / เลขบัตรประชาชน / เลขผู้เสียภาษี)
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={promptpayId}
+                  onChange={(e) => setPromptpayId(e.target.value)}
+                  placeholder="เช่น 0812345678 หรือ 0105551234567"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-mono font-bold text-slate-900 text-sm focus:outline-none focus:border-[#c6a87c]"
+                />
+                <p className="text-[11px] text-slate-400">
+                  ลูกค้าจะได้ QR พร้อมเพย์ที่ระบุยอดเงินอัตโนมัติ พร้อมเพย์นี้ต้องผูกกับบัญชีธนาคารด้านบน
+                </p>
+              </div>
+
               {/* PromptPay QR Code Image URL */}
               <div className="space-y-1">
                 <label className="font-bold text-slate-700 block">
@@ -336,6 +423,91 @@ export function AdminDepositBankClient() {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* EXCHANGE RATE CARD */}
+          <div className="bg-white border border-[#e8d5b7] rounded-2xl p-5 shadow-2xs space-y-4">
+            <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+              <div className="w-8 h-8 rounded-xl bg-[#fdfbf7] border border-[#e8d5b7] flex items-center justify-center text-[#b89766]">
+                <ArrowLeftRight className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">อัตราแลกเปลี่ยน THB / USD</h3>
+                <p className="text-[11px] text-slate-400 font-mono">Exchange Rate</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveRate} className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                {(["live", "fixed"] as const).map((m) => (
+                  <button key={m} type="button" onClick={() => setRateMode(m)}
+                    className={`p-2.5 rounded-xl border font-bold ${rateMode === m ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-slate-50 text-slate-700"}`}>
+                    {m === "live" ? "เรตตลาดจริง" : "กำหนดเอง"}
+                  </button>
+                ))}
+              </div>
+
+              {rateMode === "live" ? (
+                <>
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                    <p className="text-slate-500">เรต USD/THB ตลาดตอนนี้ (อัปเดตทุก 1 นาที)</p>
+                    <p className="text-lg font-black font-mono text-slate-900">{marketRate ? `฿${marketRate}` : "— (ยังดึงไม่ได้)"}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700 block">ส่วนต่างฝาก (บาท บวกเพิ่มจากเรตตลาด)</label>
+                    <input type="number" step="0.01" min="0" required value={depositMarkup} onChange={(e) => setDepositMarkup(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-mono font-bold text-slate-900 text-sm focus:outline-none focus:border-[#c6a87c]" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700 block">ส่วนต่างถอน (บาท หักออกจากเรตตลาด)</label>
+                    <input type="number" step="0.01" min="0" required value={withdrawMarkup} onChange={(e) => setWithdrawMarkup(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-mono font-bold text-slate-900 text-sm focus:outline-none focus:border-[#c6a87c]" />
+                  </div>
+                  <p className="text-[11px] text-slate-400">ถ้าดึงเรตตลาดไม่ได้ ระบบจะใช้อัตรากำหนดเองที่บันทึกไว้แทน</p>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700 block">อัตราฝากเงิน (บาท ต่อ 1 USD)</label>
+                    <input type="number" step="0.01" min="1" required value={depositRate} onChange={(e) => setDepositRate(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-mono font-bold text-slate-900 text-sm focus:outline-none focus:border-[#c6a87c]" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-700 block">อัตราถอนเงิน (บาท ต่อ 1 USD)</label>
+                    <input type="number" step="0.01" min="1" required value={withdrawRate} onChange={(e) => setWithdrawRate(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-mono font-bold text-slate-900 text-sm focus:outline-none focus:border-[#c6a87c]" />
+                  </div>
+                </>
+              )}
+
+              {depRateNum > 0 && wdrRateNum > 0 && (
+                <div className="p-3 rounded-xl bg-[#fdfbf7] border border-[#e8d5b7] text-[11px] text-slate-600 space-y-0.5">
+                  <p>ฝาก: <span className="font-bold">1 USD = ฿{depRateNum.toFixed(2)}</span> · ฿1,000 → <span className="font-bold text-emerald-600">${(1000 / depRateNum).toFixed(2)}</span></p>
+                  <p>ถอน: <span className="font-bold">1 USD = ฿{wdrRateNum.toFixed(2)}</span> · $100 → <span className="font-bold text-emerald-600">฿{(100 * wdrRateNum).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></p>
+                </div>
+              )}
+
+              {rateError && (
+                <div className="p-2.5 rounded-xl bg-rose-50 text-rose-600 font-bold text-[11px]">
+                  {rateError}
+                </div>
+              )}
+
+              {rateSuccess && (
+                <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-[11px] flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>บันทึกอัตราแลกเปลี่ยนสำเร็จแล้ว!</span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={savingRate}
+                className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-xs transition-colors shadow-2xs"
+              >
+                {savingRate ? "กำลังบันทึก..." : "บันทึกอัตราแลกเปลี่ยน"}
+              </button>
+            </form>
           </div>
 
           {/* ADMIN SECURITY PIN CHANGE CARD */}

@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useState, useEffect } from "react";
+import type { BonusStatus } from "@/lib/bonusRules";
 import { hasLocale, type Locale } from "@/dictionaries";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -41,7 +42,7 @@ interface TradingAccount {
   isDemo: boolean;
 }
 
-const THB_RATE = 35;
+const DEFAULT_THB_RATE = 35; // fallback until /api/settings/exchange-rate loads
 
 export default function WithdrawPage(props: { params: Promise<{ lang: string }> }) {
   const { lang } = use(props.params);
@@ -59,6 +60,8 @@ export default function WithdrawPage(props: { params: Promise<{ lang: string }> 
   const [bankAccNumber, setBankAccNumber] = useState("");
   const [bankAccName, setBankAccName] = useState("");
   const [amountUsd, setAmountUsd] = useState("");
+  const [THB_RATE, setThbRate] = useState(DEFAULT_THB_RATE);
+  const [bonusStatus, setBonusStatus] = useState<BonusStatus | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
@@ -66,7 +69,22 @@ export default function WithdrawPage(props: { params: Promise<{ lang: string }> 
 
   const amountThb = amountUsd ? (parseFloat(amountUsd) * THB_RATE).toLocaleString() : "0";
 
+  // Bonus turnover blocks withdrawals until complete; refresh whenever the account changes
   useEffect(() => {
+    setBonusStatus(null);
+    if (!selectedAccount) return;
+    fetch(`/api/bonus?accountNumber=${encodeURIComponent(selectedAccount.accountNumber)}`)
+      .then((r) => r.json())
+      .then((d) => setBonusStatus(d.status ?? null))
+      .catch(() => {});
+  }, [selectedAccount]);
+
+  useEffect(() => {
+    fetch("/api/settings/exchange-rate")
+      .then((r) => r.json())
+      .then((d) => { if (d.rate?.withdrawRate > 0) setThbRate(d.rate.withdrawRate); })
+      .catch(() => {});
+
     fetch("/api/accounts")
       .then((r) => r.json())
       .then((d) => {
@@ -409,6 +427,23 @@ export default function WithdrawPage(props: { params: Promise<{ lang: string }> 
               )}
             </div>
 
+            {bonusStatus?.active && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2 text-xs text-amber-800">
+                <p className="font-black">
+                  🔒 {isth ? `มีโบนัส $${bonusStatus.active.bonusUsd} — ต้องเทรดอีก ${bonusStatus.active.remainingLots} lots จึงจะถอนได้` : `Bonus $${bonusStatus.active.bonusUsd} — trade ${bonusStatus.active.remainingLots} more lots to unlock withdrawals`}
+                </p>
+                <div className="h-2 rounded-full bg-amber-100 overflow-hidden">
+                  <div className="h-full bg-amber-500" style={{ width: `${Math.min(100, (bonusStatus.active.tradedLots / bonusStatus.active.requiredLots) * 100)}%` }} />
+                </div>
+                <p className="font-mono">{bonusStatus.active.tradedLots} / {bonusStatus.active.requiredLots} lots</p>
+              </div>
+            )}
+            {!bonusStatus?.active && bonusStatus?.withdrawLimitUsd != null && (
+              <div className="bg-[#fdfbf7] border border-[#e8d5b7] rounded-xl p-3 text-xs font-bold text-[#997a49]">
+                {isth ? `ถอนได้สูงสุด $${bonusStatus.withdrawLimitUsd} ตามเงื่อนไขโบนัส` : `Max withdrawal $${bonusStatus.withdrawLimitUsd} under bonus terms`}
+              </div>
+            )}
+
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-2 text-xs text-red-700">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" /> {error}
@@ -417,7 +452,7 @@ export default function WithdrawPage(props: { params: Promise<{ lang: string }> 
 
             <button
               type="submit"
-              disabled={submitting || !selectedAccount || !selectedBank || !bankAccNumber || !bankAccName || !amountUsd}
+              disabled={submitting || !selectedAccount || !selectedBank || !bankAccNumber || !bankAccName || !amountUsd || !!bonusStatus?.active}
               className="w-full bg-gradient-to-r from-slate-800 via-slate-900 to-slate-950 hover:brightness-125 text-white font-black py-4 rounded-2xl text-sm transition-all shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-[#c6a87c]/20 active:scale-[0.99]"
             >
               {submitting ? (

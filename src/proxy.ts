@@ -5,6 +5,7 @@ import { defaultLocale, locales, type Locale } from "@/dictionaries";
 
 const LOCALE_COOKIE = "NEXT_LOCALE";
 const SESSION_COOKIE = "luna_session";
+const REF_COOKIE = "luna_ref"; // must match REFERRAL_COOKIE in src/lib/referral.ts
 const SECRET = new TextEncoder().encode(
   process.env.SESSION_SECRET!
 );
@@ -36,6 +37,17 @@ async function isAuthenticated(request: NextRequest): Promise<boolean> {
 }
 
 export async function proxy(request: NextRequest) {
+  const response = await route(request);
+
+  // Remember a referral link (?ref=CODE) for 30 days so it survives browsing until sign-up
+  const ref = request.nextUrl.searchParams.get("ref");
+  if (ref && /^[A-Za-z0-9]{4,16}$/.test(ref)) {
+    response.cookies.set(REF_COOKIE, ref.toUpperCase(), { maxAge: 60 * 60 * 24 * 30, path: "/", sameSite: "lax", httpOnly: true });
+  }
+  return response;
+}
+
+async function route(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Admin routes bypass locale prefix

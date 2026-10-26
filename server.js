@@ -4,10 +4,17 @@ const next = require('next');
 const { Server } = require('socket.io');
 const WebSocket = require('ws');
 const crypto = require('crypto');
+const { recordCandle } = require('./lib/price-history.cjs');
 const { loadEnvConfig } = require('@next/env');
 
 const PORT = parseInt(process.env.PORT || '3002', 10);
 const dev = process.env.NODE_ENV !== 'production';
+
+// loadEnvConfig snapshots process.env on its first call and restores that snapshot whenever
+// Next reloads env (e.g. after a .env edit). Next only sets __NEXT_DEV_SERVER later, in
+// prepare(), so without this the reload deletes it and every route 500s looking for
+// production-only files such as .next/dev/required-server-files.json.
+if (dev) process.env.__NEXT_DEV_SERVER = '1';
 
 // Load .env* files up front so FASTFOREX_API_KEY / SESSION_SECRET are set before we read them below
 loadEnvConfig(process.cwd(), dev);
@@ -51,26 +58,24 @@ async function fetchCryptoPrices() {
 /* ══════════════════════════════════════════
    SOURCE B: open.er-api.com — forex pairs, FALLBACK ONLY (daily rate, ~1.5 pip synthetic spread)
 ═══════════════════════════════════════════ */
-const FOREX_CFG = {
-  EURUSD: { code: 'EUR', invert: true  },
-  GBPUSD: { code: 'GBP', invert: true  },
-  USDJPY: { code: 'JPY', invert: false },
-  USDCHF: { code: 'CHF', invert: false },
-  AUDUSD: { code: 'AUD', invert: true  },
-  USDCAD: { code: 'CAD', invert: false },
-  NZDUSD: { code: 'NZD', invert: true  },
-};
+// Every forex symbol as base/quote; the daily USD table gives any cross as rates[quote] / rates[base]
+const FOREX_PAIRS = [
+  'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD',
+  'EURJPY', 'GBPJPY', 'AUDJPY', 'NZDJPY', 'CADJPY', 'CHFJPY', 'EURGBP', 'EURAUD', 'EURCHF', 'GBPCHF',
+];
 
 async function fetchForexPrices() {
   const res = await fetch('https://open.er-api.com/v6/latest/USD', {
     signal: AbortSignal.timeout(8000),
   });
   if (!res.ok) return {};
-  const { rates } = await res.json();
+  const { rates, time_last_update_unix } = await res.json();
   const out = {};
-  for (const [id, { code, invert }] of Object.entries(FOREX_CFG)) {
-    if (!rates[code]) continue;
-    const mid = invert ? 1 / rates[code] : rates[code];
+  rates.USD = 1;
+  for (const id of FOREX_PAIRS) {
+    const base = rates[id.slice(0, 3)], quote = rates[id.slice(3)];
+    if (!base || !quote) continue;
+    const mid = quote / base;
     const spread = mid * 0.00015; // ~1.5 pip spread
     out[id] = {
       mid,
@@ -78,6 +83,7 @@ async function fetchForexPrices() {
       ask: mid + spread,
       change: 0,
       changePct: 0,
+      ts: time_last_update_unix ? time_last_update_unix * 1000 : Date.now(),
       indicative: true,   // daily rate: fine to display, never used to execute trades
     };
   }
@@ -112,11 +118,26 @@ let yfSession     = { cookies: '', crumb: '' };
 let yfBackoffUntil = 0;
 let yfBackoffMs    = 0;
 
+function pauseYahoo(res) {
+  yfBackoffMs = Math.min((yfBackoffMs || 30_000) * 2, 300_000);
+  const retryAfter = res.headers.get('retry-after');
+  const retryMs = retryAfter == null ? 0 : /^\d+$/.test(retryAfter)
+    ? Number(retryAfter) * 1000
+    : Math.max(0, Date.parse(retryAfter) - Date.now()) || 0;
+  const delay = Math.max(yfBackoffMs, retryMs);
+  yfBackoffUntil = Date.now() + delay;
+  console.warn(`\n[prices] YF 429 — pausing ${Math.ceil(delay / 1000)}s`);
+}
+
 async function refreshYFSession() {
   const cookieRes = await fetch('https://fc.yahoo.com', {
     headers: { 'User-Agent': YF_UA },
     signal: AbortSignal.timeout(8000),
   });
+  if (cookieRes.status === 429) {
+    pauseYahoo(cookieRes);
+    return;
+  }
   const setCookies = cookieRes.headers.getSetCookie?.() ?? [];
   const cookies = setCookies.map(c => c.split(';')[0]).join('; ');
 
@@ -124,17 +145,26 @@ async function refreshYFSession() {
     headers: { 'User-Agent': YF_UA, 'Cookie': cookies },
     signal: AbortSignal.timeout(8000),
   });
-  const crumb = await crumbRes.text();
+  if (crumbRes.status === 429) {
+    pauseYahoo(crumbRes);
+    return;
+  }
+  if (!crumbRes.ok) throw new Error(`Yahoo session HTTP ${crumbRes.status}`);
+  const crumb = (await crumbRes.text()).trim();
 
-  if (!crumb || crumb.includes(' ') || crumb.length > 50) {
-    throw new Error(`Bad crumb: "${crumb.slice(0, 40)}"`);
+  if (!crumb || /\s/.test(crumb) || crumb.length > 50) {
+    throw new Error('Yahoo returned an invalid session crumb');
   }
   yfSession = { cookies, crumb };
-  console.log(`\n[prices] YF session refreshed (crumb: ${crumb.slice(0, 6)}…)`);
+  console.log('\n[prices] YF session refreshed');
 }
 
 async function fetchYahooPrices() {
   if (Date.now() < yfBackoffUntil) return {};
+  if (!yfSession.crumb) {
+    await refreshYFSession();
+    if (!yfSession.crumb || Date.now() < yfBackoffUntil) return {};
+  }
 
   const symbols = Object.values(YF_MAP).join(',');
   const url = `https://query1.finance.yahoo.com/v8/finance/quote?symbols=${encodeURIComponent(symbols)}&crumb=${encodeURIComponent(yfSession.crumb)}`;
@@ -145,9 +175,7 @@ async function fetchYahooPrices() {
 
   if (!res.ok) {
     if (res.status === 429) {
-      yfBackoffMs    = Math.min((yfBackoffMs || 30_000) * 2, 300_000);
-      yfBackoffUntil = Date.now() + yfBackoffMs;
-      console.warn(`\n[prices] YF 429 — pausing ${yfBackoffMs / 1000}s`);
+      pauseYahoo(res);
     } else if (res.status === 401 || res.status === 404) {
       await refreshYFSession();
     }
@@ -183,13 +211,14 @@ const WS_FRESH_MS = 10_000;   // a websocket tick newer than this beats REST dat
 const EMIT_MS     = 250;      // max broadcast rate to browsers (~4/s)
 
 let lastPrices = {};
+const candleHistory = {};
 const wsTickAt = {};          // symbol id → ms timestamp of last websocket tick
 let dirty = false;
 
 const isLive = (id) => Date.now() - (wsTickAt[id] ?? 0) < WS_FRESH_MS;
 
 function applyTick(id, bid, ask) {
-  if (!(bid > 0) || !(ask > 0)) return;
+  if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask < bid) return;
   const prev = lastPrices[id];
   lastPrices[id] = {
     mid: (bid + ask) / 2,
@@ -200,17 +229,22 @@ function applyTick(id, bid, ask) {
     src: 'ws',
     ts: Date.now(),
   };
-  wsTickAt[id] = Date.now();
+  recordCandle(candleHistory, id, lastPrices[id].mid, lastPrices[id].ts);
+  wsTickAt[id] = lastPrices[id].ts;
   dirty = true;
 }
 
 function applyRest(fresh) {
   for (const [id, q] of Object.entries(fresh)) {
+    if (![q.mid, q.bid, q.ask].every(Number.isFinite) || q.bid <= 0 || q.ask < q.bid) continue;
+    // A daily reference rate must never replace the last executable tick (even if stale).
+    if (q.indicative && lastPrices[id] && !lastPrices[id].indicative) continue;
     if (isLive(id)) {
       // keep the live bid/ask, only refresh the 24h stats
       lastPrices[id] = { ...lastPrices[id], change: q.change, changePct: q.changePct };
     } else {
-      lastPrices[id] = { ...q, src: 'rest', ts: Date.now() };
+      lastPrices[id] = { ...q, src: 'rest', ts: q.ts ?? Date.now() };
+      if (!q.indicative) recordCandle(candleHistory, id, q.mid, lastPrices[id].ts);
     }
   }
   dirty = true;
@@ -302,31 +336,35 @@ connectFeed('binance', 'wss://stream.binance.com:9443/stream?streams=btcusdt@boo
   },
 });
 
-/* FastForex: 7 forex pairs + XAUUSD over one connection (plan limit: 2 connections).
-   Note: subscribe must wait for the auth ack, otherwise the server answers 401. */
-const FF_KEY   = process.env.FASTFOREX_API_KEY;
-const FF_FX    = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD'];
-const FF_METAL = ['XAUUSD'];
+/* FastForex: the plan allows 2 connections of ~10 symbols each, so symbols are split
+   across two connections. Note: subscribe must wait for the auth ack, otherwise the server answers 401. */
+const FF_KEY = (process.env.FASTFOREX_WS_API_KEY || process.env.FASTFOREX_API_KEY || '').trim();
+const FF_CONNECTIONS = [
+  { name: 'fastforex', fx: ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD'], metals: ['XAUUSD', 'XAGUSD'] },
+  { name: 'fastforex-2', fx: ['EURJPY', 'GBPJPY', 'AUDJPY', 'NZDJPY', 'CADJPY', 'CHFJPY', 'EURGBP', 'EURAUD', 'EURCHF', 'GBPCHF'], metals: [] },
+];
 
 if (FF_KEY) {
-  connectFeed('fastforex', 'wss://fastforex.wsdx.io', {
-    onOpen: (ws) => ws.send(JSON.stringify({ op: 'auth', key: FF_KEY })),
-    onMessage: (m, { ws, stop }) => {
-      if (m.op === 'price') {
-        applyTick(m.sym, parseFloat(m.bid), parseFloat(m.ask));
-      } else if (m.op === 'auth') {
-        if (m.status === 200) {
-          ws.send(JSON.stringify({ op: 'subscribe', stream: 'fx',     pairs: FF_FX }));
-          ws.send(JSON.stringify({ op: 'subscribe', stream: 'metals', pairs: FF_METAL }));
-        } else {
-          console.error(`[fastforex] auth failed (${m.status}): ${m.msg} — using REST fallback only`);
-          stop();
+  for (const { name, fx, metals } of FF_CONNECTIONS) {
+    connectFeed(name, 'wss://fastforex.wsdx.io', {
+      onOpen: (ws) => ws.send(JSON.stringify({ op: 'auth', key: FF_KEY })),
+      onMessage: (m, { ws, stop }) => {
+        if (m.op === 'price') {
+          applyTick(m.sym, parseFloat(m.bid), parseFloat(m.ask));
+        } else if (m.op === 'auth') {
+          if (m.status === 200) {
+            if (fx.length)     ws.send(JSON.stringify({ op: 'subscribe', stream: 'fx',     pairs: fx }));
+            if (metals.length) ws.send(JSON.stringify({ op: 'subscribe', stream: 'metals', pairs: metals }));
+          } else {
+            console.error(`[${name}] auth failed (${m.status}): ${m.msg} — using REST fallback only`);
+            stop();
+          }
+        } else if (m.op === 'subscribe' && m.status !== 200) {
+          console.warn(`[${name}] subscribe failed (${m.status}): ${m.msg}`);
         }
-      } else if (m.op === 'subscribe' && m.status !== 200) {
-        console.warn(`[fastforex] subscribe failed (${m.status}): ${m.msg}`);
-      }
-    },
-  });
+      },
+    });
+  }
 } else {
   console.warn('[fastforex] FASTFOREX_API_KEY not set — forex/gold fall back to delayed REST data');
 }
@@ -355,6 +393,7 @@ async function fetchAndBroadcast() {
 /* ─── Socket.IO connection handler ─── */
 io.on('connection', (socket) => {
   console.log(`\n[ws] +${socket.id.slice(0, 8)}`);
+  socket.emit('candle-history', candleHistory);
   if (Object.keys(lastPrices).length > 0) {
     socket.emit('prices', lastPrices);
   }
@@ -385,6 +424,7 @@ const emitInterval = setInterval(() => {
   if (!dirty) return;
   dirty = false;
   io.emit('prices', lastPrices);
+  io.emit('candle-update', Object.fromEntries(Object.entries(candleHistory).map(([id, bars]) => [id, [bars.at(-1)]])));
 }, EMIT_MS);
 
 process.on('SIGTERM', () => {
@@ -402,6 +442,51 @@ nextApp.prepare().then(() => {
 
   httpServer.listen(PORT, () => {
     console.log(`\n> Ready at http://localhost:${PORT} [${dev ? 'dev' : 'prod'}]`);
-    console.log('> Live ticks: Binance WS (BTC/ETH) + FastForex WS (forex/gold) | Oil/US30: Yahoo REST every 30s');
+    console.log('> Live ticks: Binance WS (BTC/ETH) + FastForex WS x2 (forex/gold/silver) | Oil/US30: Yahoo REST every 30s');
+    startRiskLoop();
   });
 });
+
+/* ══════════════════════════════════════════
+   RISK ENGINE — SL/TP, stop-out and negative balance protection run in
+   /api/internal/risk; this loop only triggers it. On by default in production;
+   in dev it must be enabled with RISK_ENGINE=on, because a local server may be
+   pointed at the live database and would otherwise close real clients' positions.
+═══════════════════════════════════════════ */
+const RISK_INTERVAL_MS = 2_000;
+const RISK_TOKEN = process.env.SESSION_SECRET
+  ? crypto.createHash('sha256').update(`${process.env.SESSION_SECRET}:internal-risk`).digest('hex')
+  : null;
+
+function startRiskLoop() {
+  const flag = (process.env.RISK_ENGINE || '').toLowerCase();
+  const enabled = flag ? flag === 'on' : !dev;
+  if (!enabled || !RISK_TOKEN) {
+    console.log(`> Risk engine: OFF${RISK_TOKEN ? ' (set RISK_ENGINE=on to enable)' : ' (SESSION_SECRET missing)'}`);
+    return;
+  }
+  console.log(`> Risk engine: ON (SL/TP + stop-out every ${RISK_INTERVAL_MS / 1000}s)`);
+
+  let running = false;
+  setInterval(async () => {
+    if (running) return; // never overlap runs
+    running = true;
+    try {
+      const res = await fetch(`http://127.0.0.1:${PORT}/api/internal/risk`, {
+        method: 'POST',
+        headers: { 'x-internal-token': RISK_TOKEN },
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (res.ok) {
+        const { closed } = await res.json();
+        for (const c of closed ?? []) console.log(`[risk] closed ${c.tradeId} (${c.reason}) pnl=${c.pnl}`);
+      } else {
+        console.warn(`[risk] check failed: HTTP ${res.status}`);
+      }
+    } catch (e) {
+      console.warn(`[risk] check failed: ${e.message}`);
+    } finally {
+      running = false;
+    }
+  }, RISK_INTERVAL_MS);
+}

@@ -58,6 +58,7 @@ const NAV_GROUPS: { title: string; categoryKey: string; items: NavItem[] }[] = [
       { href: "/admin/transactions", label: "ธุรกรรม ฝาก-ถอน", sub: "อนุมัติสลิปและโอนเงิน", icon: ArrowLeftRight, badge: "Money" },
       { href: "/admin/copy-trading", label: "จัดการ Copy Trading", sub: "บริหาร Master Traders & ROI", icon: TrendingUp, badge: "Master" },
       { href: "/admin/settings/deposit-bank", label: "ตั้งค่าธนาคารรับฝาก", sub: "เลขบัญชีบริษัท & QR", icon: Building2 },
+      { href: "/admin/settings/bonus", label: "ตั้งค่าโบนัสเงินฝาก", sub: "โบนัส & เงื่อนไขถอน", icon: Gift },
     ],
   },
   {
@@ -65,6 +66,7 @@ const NAV_GROUPS: { title: string; categoryKey: string; items: NavItem[] }[] = [
     categoryKey: "support",
     items: [
       { href: "/admin/promotions", label: "โบนัส & โปรโมชั่น", sub: "เพิ่มและแก้ไขโบนัสเงินฝาก", icon: Gift },
+      { href: "/admin/referrals", label: "ระบบแนะนำเพื่อน", sub: "% ค่าแนะนำ & ใครแนะนำใคร", icon: Users },
       { href: "/admin/appointments", label: "นัดหมายปรึกษา", sub: "ตารางนัดคุยกับเจ้าหน้าที่", icon: CalendarCheck },
       { href: "/admin/support", label: "ศูนย์ช่วยเหลือ & FAQ", sub: "ตั๋วคำร้องและคำถามพบบ่อย", icon: Headphones },
     ],

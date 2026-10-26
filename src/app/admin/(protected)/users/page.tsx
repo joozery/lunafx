@@ -21,6 +21,12 @@ type User = {
   accountType: string;
   role?: string;
   createdAt: string;
+  trading?: {
+    closedLots: number;
+    openLots: number;
+    trades: number;
+    bonus: { bonusUsd: number; tradedLots: number; requiredLots: number } | null;
+  };
 };
 
 type ConfirmAction = {
@@ -206,7 +212,7 @@ export default function AdminUsersPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-100 bg-[#faf8f5]">
-                {["ผู้ใช้", "อีเมล", "ประเภท", "สถานะ", "สมัครเมื่อ", ""].map((h) => (
+                {["ผู้ใช้", "อีเมล", "ประเภท", "Lot ที่เทรด", "สถานะ", "สมัครเมื่อ", ""].map((h) => (
                   <th key={h} className="px-5 py-3.5 text-left">
                     <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{h}</span>
                   </th>
@@ -226,7 +232,7 @@ export default function AdminUsersPage() {
                         </div>
                       </div>
                     </td>
-                    {[140, 70, 70, 90].map((w, j) => (
+                    {[140, 70, 80, 70, 90].map((w, j) => (
                       <td key={j} className="px-5 py-4">
                         <div className="h-4 bg-slate-100 rounded-lg animate-pulse" style={{ width: w }} />
                       </td>
@@ -238,7 +244,7 @@ export default function AdminUsersPage() {
                 ))
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-16 text-center">
+                  <td colSpan={7} className="px-5 py-16 text-center">
                     <div className="flex flex-col items-center gap-3 text-slate-400">
                       <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center">
                         <Users className="w-6 h-6" />
@@ -280,6 +286,19 @@ export default function AdminUsersPage() {
                   {/* Account type */}
                   <td className="px-5 py-3.5">
                     <AccountTypeBadge type={u.accountType} />
+                  </td>
+
+                  {/* Traded lots + bonus turnover */}
+                  <td className="px-5 py-3.5 whitespace-nowrap">
+                    <p className="text-sm font-bold font-mono text-slate-900">{u.trading?.closedLots ?? 0} lots</p>
+                    <p className="text-[11px] text-slate-400">
+                      {u.trading?.trades ?? 0} ออเดอร์{u.trading?.openLots ? ` · เปิดอยู่ ${u.trading.openLots} lots` : ""}
+                    </p>
+                    {u.trading?.bonus && (
+                      <p className="mt-1 inline-block text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                        โบนัส ${u.trading.bonus.bonusUsd}: {u.trading.bonus.tradedLots}/{u.trading.bonus.requiredLots} lots
+                      </p>
+                    )}
                   </td>
 
                   {/* Status */}

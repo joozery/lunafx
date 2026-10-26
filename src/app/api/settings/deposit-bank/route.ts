@@ -10,6 +10,7 @@ const defaultBankSetting = {
   accountNumber: "098-1-23456-7",
   accountName: "บริษัท ลูนา ฟอเร็กซ์ จำกัด (Luna Forex Co., Ltd.)",
   promptpayQr: "",
+  promptpayId: "",
 };
 
 export async function GET() {

@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { conversionSymbols, type Mids } from "@/lib/pnl";
 
 export type Quote = { bid: number; ask: number };
 
@@ -27,4 +28,15 @@ export async function getServerQuote(symbol: string): Promise<Quote | null> {
   } catch {
     return null;
   }
+}
+
+/** Mids of the USD pairs needed to value `symbols` in USD (for cross pairs like EURJPY). */
+export async function getConversionMids(symbols: string[]): Promise<Mids> {
+  const needed = [...new Set(symbols.flatMap(conversionSymbols))];
+  const mids: Mids = {};
+  await Promise.all(needed.map(async (s) => {
+    const q = await getServerQuote(s);
+    if (q) mids[s] = (q.bid + q.ask) / 2;
+  }));
+  return mids;
 }
