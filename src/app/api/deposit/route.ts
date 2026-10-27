@@ -19,6 +19,7 @@ const ALLOWED_TYPES: Record<string, string> = {
   "image/png":  "png",
   "image/webp": "webp",
   "image/heic": "heic",
+  "image/heif": "heic",
 };
 
 // Human-readable Thai errors per Slip2Go status

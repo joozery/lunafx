@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import Link from "next/link";
+import { readUploadResponse, shrinkImage } from "@/lib/upload-client";
 import {
   Eye, EyeOff, Settings, Upload, CheckCircle2, Clock, XCircle,
   FileText, Camera, CreditCard, AlertCircle, ChevronRight, X,
@@ -128,16 +129,17 @@ export function AccountsClient({ lang, initialAccounts }: AccountsClientProps) {
     setKycError("");
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", await shrinkImage(file));
       formData.append("purpose", purpose);
 
       const res = await fetch("/api/upload", { method: "POST", body: formData });
-      const { key, publicUrl, error } = await res.json();
+      const { key, publicUrl, error } = await readUploadResponse<{ key: string; publicUrl: string; error?: string }>(res);
       if (error) throw new Error(error);
 
       setKycDocs((prev) => ({ ...prev, [purpose]: { key, url: publicUrl, name: file.name } }));
     } catch (err: unknown) {
-      setKycError(err instanceof Error ? err.message : "อัปโหลดไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+      // fetch() itself rejects with a TypeError when the connection drops
+      setKycError(err instanceof Error && !(err instanceof TypeError) ? err.message : "อัปโหลดไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง");
     } finally {
       setKycUploading((prev) => ({ ...prev, [purpose]: false }));
     }

@@ -8,8 +8,11 @@ const ALLOWED_TYPES: Record<string, string> = {
   "image/png": "png",
   "image/webp": "webp",
   "image/heic": "heic",
+  "image/heif": "heic",
   "application/pdf": "pdf",
 };
+
+const MAX_BYTES = 10 * 1024 * 1024; // matches the "max 10MB" shown on the KYC form
 
 const ALLOWED_PURPOSES = new Set(["id_front", "id_back", "selfie", "bank_statement"]);
 
@@ -23,10 +26,13 @@ export async function POST(req: NextRequest) {
   const purpose = formData.get("purpose") as string | null;
 
   if (!file || !purpose) {
-    return NextResponse.json({ error: "Missing file or purpose" }, { status: 400 });
+    return NextResponse.json({ error: "กรุณาเลือกไฟล์ที่ต้องการอัปโหลด" }, { status: 400 });
   }
   if (!ALLOWED_TYPES[file.type]) {
-    return NextResponse.json({ error: "File type not allowed (jpeg/png/webp/heic/pdf)" }, { status: 400 });
+    return NextResponse.json({ error: "รองรับเฉพาะไฟล์ JPG, PNG, WEBP, HEIC หรือ PDF" }, { status: 400 });
+  }
+  if (file.size > MAX_BYTES) {
+    return NextResponse.json({ error: "ไฟล์ใหญ่เกินไป กรุณาใช้ไฟล์ขนาดไม่เกิน 10MB" }, { status: 413 });
   }
   if (!ALLOWED_PURPOSES.has(purpose)) {
     return NextResponse.json({ error: "Invalid purpose" }, { status: 400 });
@@ -36,14 +42,19 @@ export async function POST(req: NextRequest) {
   const key = `kyc/${session.userId}/${purpose}_${crypto.randomUUID()}.${ext}`;
   const buffer = Buffer.from(await file.arrayBuffer());
 
-  await r2.send(
-    new PutObjectCommand({
-      Bucket: process.env.R2_BUCKET_NAME!,
-      Key: key,
-      Body: buffer,
-      ContentType: file.type,
-    })
-  );
+  try {
+    await r2.send(
+      new PutObjectCommand({
+        Bucket: process.env.R2_BUCKET_NAME!,
+        Key: key,
+        Body: buffer,
+        ContentType: file.type,
+      })
+    );
+  } catch (e) {
+    console.error("[upload] R2 put failed:", e);
+    return NextResponse.json({ error: "ระบบจัดเก็บไฟล์ขัดข้อง กรุณาลองใหม่อีกครั้ง" }, { status: 502 });
+  }
 
   return NextResponse.json({ key, publicUrl: getPublicUrl(key) });
 }

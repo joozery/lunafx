@@ -5,6 +5,7 @@ import Link from "next/link";
 import QRCode from "qrcode";
 import { buildPromptPayPayload, isValidPromptPayId } from "@/lib/promptpay";
 import { calcBonus, requiredLots, type BonusSetting } from "@/lib/bonusRules";
+import { readUploadResponse, shrinkImage } from "@/lib/upload-client";
 import {
   Upload, CheckCircle2, Clock, AlertCircle, Copy, Building2,
   ChevronDown, X, ImageIcon, History, ArrowDownToLine, RefreshCw, QrCode,
@@ -175,12 +176,15 @@ export function FundsClient({ lang }: { lang: string }) {
     setSubmitting(true);
     try {
       const fd = new FormData();
-      fd.append("slip", slip);
+      fd.append("slip", await shrinkImage(slip));
       fd.append("amountThb", amountThb);
       fd.append("accountNumber", selectedAccount.accountNumber);
 
       const res = await fetch("/api/deposit", { method: "POST", body: fd });
-      const data = await res.json();
+      const data = await readUploadResponse<{
+        ok?: boolean; error?: string; slip2goCode?: string; transactionId: string;
+        autoApproved: boolean; slip2goStatus?: string; bonusUsd?: number;
+      }>(res);
       if (data.ok) {
         setSuccess({ txnId: data.transactionId, autoApproved: data.autoApproved, slip2goStatus: data.slip2goStatus ?? "unavailable", bonusUsd: data.bonusUsd ?? 0 });
         setAmountThb("");
