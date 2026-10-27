@@ -11,7 +11,7 @@ import { getDb } from "@/lib/mongodb";
 
 export const LINE_SETTING_KEY = "lineNotify";
 
-export type LineEvent = "signup" | "deposit" | "withdraw" | "copy";
+export type LineEvent = "signup" | "deposit" | "withdraw" | "copy" | "referral";
 
 export interface LineSetting {
   enabled: boolean;
@@ -26,7 +26,7 @@ export const DEFAULT_LINE_SETTING: LineSetting = {
   channelAccessToken: "",
   channelSecret: "",
   targets: [],
-  events: { signup: true, deposit: true, withdraw: true, copy: true },
+  events: { signup: true, deposit: true, withdraw: true, copy: true, referral: true },
 };
 
 const CACHE_MS = 30_000;

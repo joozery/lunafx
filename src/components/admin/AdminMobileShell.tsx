@@ -14,7 +14,7 @@ const PENDING_POLL_MS = 60_000;
 export function AdminMobileShell({ adminName }: { adminName: string }) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [pending, setPending] = useState({ deposits: 0, withdrawals: 0, accountRequests: 0 });
+  const [pending, setPending] = useState({ deposits: 0, withdrawals: 0, accountRequests: 0, referrals: 0 });
 
   const isActive = (href: string, exact = false) => (exact ? pathname === href : pathname.startsWith(href));
 

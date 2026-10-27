@@ -2,11 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Bell, UserPlus, ArrowDownLeft, ArrowUpRight, FileCheck2, CheckCheck } from "lucide-react";
+import { Bell, UserPlus, ArrowDownLeft, ArrowUpRight, FileCheck2, CheckCheck, HandCoins } from "lucide-react";
 
 interface Item {
   id: string;
-  kind: "signup" | "deposit" | "withdrawal" | "account_request";
+  kind: "signup" | "deposit" | "withdrawal" | "account_request" | "referral";
   title: string;
   detail: string;
   status: string | null;
@@ -18,7 +18,7 @@ interface Data {
   items: Item[];
   unread: number;
   seenAt: number | null;
-  pending: { deposits: number; withdrawals: number; accountRequests: number };
+  pending: { deposits: number; withdrawals: number; accountRequests: number; referrals: number };
 }
 
 const POLL_MS = 30_000;
@@ -28,12 +28,14 @@ const KIND_STYLE: Record<Item["kind"], { icon: typeof Bell; cls: string }> = {
   deposit:         { icon: ArrowDownLeft, cls: "bg-emerald-50 text-emerald-600" },
   withdrawal:      { icon: ArrowUpRight,  cls: "bg-rose-50 text-rose-600" },
   account_request: { icon: FileCheck2,    cls: "bg-amber-50 text-amber-600" },
+  referral:        { icon: HandCoins,     cls: "bg-violet-50 text-violet-600" },
 };
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   pending:   { label: "รอดำเนินการ", cls: "bg-amber-50 text-amber-700 border-amber-200" },
   completed: { label: "สำเร็จ",      cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   approved:  { label: "อนุมัติแล้ว",  cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  paid:      { label: "จ่ายแล้ว",    cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   failed:    { label: "ไม่อนุมัติ",   cls: "bg-slate-100 text-slate-500 border-slate-200" },
   rejected:  { label: "ไม่อนุมัติ",   cls: "bg-slate-100 text-slate-500 border-slate-200" },
 };
@@ -80,7 +82,7 @@ export function AdminNotificationBell() {
 
   const unread = data?.unread ?? 0;
   const pending = data?.pending;
-  const pendingTotal = pending ? pending.deposits + pending.withdrawals + pending.accountRequests : 0;
+  const pendingTotal = pending ? pending.deposits + pending.withdrawals + pending.accountRequests + (pending.referrals ?? 0) : 0;
   const seenAt = data?.seenAt ?? 0;
 
   return (
@@ -114,11 +116,12 @@ export function AdminNotificationBell() {
           </div>
 
           {pendingTotal > 0 && pending && (
-            <div className="shrink-0 grid grid-cols-3 gap-1.5 p-3 bg-amber-50/60 border-b border-amber-100 text-center">
+            <div className="shrink-0 grid grid-cols-4 gap-1.5 p-3 bg-amber-50/60 border-b border-amber-100 text-center">
               {[
                 { label: "ฝากรอตรวจ", n: pending.deposits, href: "/admin/transactions" },
                 { label: "ถอนรอโอน", n: pending.withdrawals, href: "/admin/transactions" },
                 { label: "ขอเปิดบัญชี", n: pending.accountRequests, href: "/admin/account-requests" },
+                { label: "ค่าแนะนำ", n: pending.referrals ?? 0, href: "/admin/referrals" },
               ].map((p) => (
                 <Link key={p.label} href={p.href} onClick={() => setOpen(false)} className="rounded-lg bg-white border border-amber-100 py-1.5 hover:border-amber-300">
                   <p className={`text-base font-black ${p.n ? "text-amber-600" : "text-slate-300"}`}>{p.n}</p>

@@ -68,6 +68,7 @@ export async function PATCH(req: NextRequest) {
             deposit: Boolean(body.events?.deposit),
             withdraw: Boolean(body.events?.withdraw),
             copy: Boolean(body.events?.copy),
+            referral: Boolean(body.events?.referral),
           },
         },
         updatedAt: new Date(),

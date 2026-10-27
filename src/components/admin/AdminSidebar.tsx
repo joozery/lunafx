@@ -20,6 +20,7 @@ import {
   Headphones,
   TrendingUp,
   MessageCircle,
+  BookOpen,
 } from "lucide-react";
 import type { ElementType } from "react";
 
@@ -44,6 +45,7 @@ export const NAV_GROUPS: { title: string; categoryKey: string; items: NavItem[] 
         icon: LayoutDashboard,
         exact: true,
       },
+      { href: "/admin/guide", label: "คู่มือหลังบ้าน", sub: "ระบบทำงานอย่างไร & งานประจำวัน", icon: BookOpen },
     ],
   },
   {

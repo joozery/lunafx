@@ -10,6 +10,7 @@ const EVENTS = [
   { key: "deposit",  label: "มีการฝากเงิน / ส่งสลิป" },
   { key: "withdraw", label: "มีคำขอถอนเงิน" },
   { key: "copy",     label: "Copy Trade: มีคนสมัคร Master / เริ่มคัดลอก" },
+  { key: "referral", label: "มีค่าแนะนำเพื่อนรออนุมัติ" },
 ] as const;
 
 const inputCls = "w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-mono text-slate-900 text-xs focus:outline-none focus:border-[#c6a87c]";
@@ -22,7 +23,7 @@ export function AdminLineClient() {
   const [secretHint, setSecretHint] = useState("");
   const [targets, setTargets] = useState<string[]>([]);
   const [newTarget, setNewTarget] = useState("");
-  const [events, setEvents] = useState({ signup: true, deposit: true, withdraw: true, copy: true });
+  const [events, setEvents] = useState({ signup: true, deposit: true, withdraw: true, copy: true, referral: true });
   const [sources, setSources] = useState<Source[]>([]);
   const [webhookUrl, setWebhookUrl] = useState("");
   const [busy, setBusy] = useState<"save" | "test" | null>(null);
@@ -40,7 +41,7 @@ export function AdminLineClient() {
       if (d.setting) {
         setEnabled(d.setting.enabled);
         setTargets(d.setting.targets ?? []);
-        setEvents({ signup: true, deposit: true, withdraw: true, copy: true, ...d.setting.events });
+        setEvents({ signup: true, deposit: true, withdraw: true, copy: true, referral: true, ...d.setting.events });
         setTokenHint(d.setting.tokenHint);
         setSecretHint(d.setting.secretHint);
       }

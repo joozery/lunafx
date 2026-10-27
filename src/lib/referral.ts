@@ -1,6 +1,7 @@
 import "server-only";
 import { randomBytes } from "crypto";
 import { ObjectId, type Db, type Document, type WithId } from "mongodb";
+import { notifyAdmins, thaiTime } from "@/lib/lineNotify";
 
 export const REFERRAL_SETTING_KEY = "referral";
 export const REFERRAL_COOKIE = "luna_ref";
@@ -65,21 +66,21 @@ export async function recordReferralCommission(db: Db, depositTxn: WithId<Docume
   const setting = await getReferralSetting(db);
   if (!setting.enabled) return;
 
-  const depositor = await db.collection("users").findOne({ _id: depositTxn.userId }, { projection: { referredBy: 1 } });
+  const depositor = await db.collection("users").findOne({ _id: depositTxn.userId }, { projection: { referredBy: 1, firstName: 1, lastName: 1 } });
   if (!depositor?.referredBy) return;
 
   // Only real-money deposits count
   const account = await db.collection("accounts").findOne({ accountNumber: depositTxn.accountNumber }, { projection: { isDemo: 1 } });
   if (!account || account.isDemo) return;
 
-  const referrer = await db.collection("users").findOne({ _id: depositor.referredBy }, { projection: { referralPercent: 1 } });
+  const referrer = await db.collection("users").findOne({ _id: depositor.referredBy }, { projection: { referralPercent: 1, firstName: 1, lastName: 1, email: 1 } });
   if (!referrer) return;
 
   const percent = typeof referrer.referralPercent === "number" ? referrer.referralPercent : setting.defaultPercent;
   const amountUsd = round2((depositTxn.amount * percent) / 100);
   if (amountUsd <= 0) return;
 
-  await db.collection("referralCommissions").updateOne(
+  const result = await db.collection("referralCommissions").updateOne(
     { depositTxnId: depositTxn._id },
     {
       $setOnInsert: {
@@ -95,6 +96,15 @@ export async function recordReferralCommission(db: Db, depositTxn: WithId<Docume
     },
     { upsert: true },
   );
+
+  if (result.upsertedCount > 0) {
+    void notifyAdmins(
+      `🤝 ค่าแนะนำเพื่อนรออนุมัติ\nผู้แนะนำ: ${referrer.firstName ?? ""} ${referrer.lastName ?? ""} (${referrer.email})\n` +
+      `เพื่อนที่ฝาก: ${depositor.firstName ?? ""} ${depositor.lastName ?? ""}\nยอดฝาก: $${depositTxn.amount} × ${percent}% = $${amountUsd}\n` +
+      `อนุมัติที่: หลังบ้าน → ระบบแนะนำเพื่อน\nเวลา: ${thaiTime()}`,
+      "referral",
+    );
+  }
 }
 
 /** Pay an approved commission into the referrer's oldest live trading account. */
