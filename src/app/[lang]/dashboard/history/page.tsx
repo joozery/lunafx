@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { getDb } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
-import { History, Download, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight } from "lucide-react";
+import { History, Download, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Gift } from "lucide-react";
 
 function formatDate(date: Date, lang: string) {
   return new Date(date).toLocaleDateString(lang === "th" ? "th-TH" : "en-US", {
@@ -20,6 +20,12 @@ const METHOD_LABELS: Record<string, string> = {
   bank: "Bank Transfer",
   wallet: "E-Wallet",
   crypto: "Cryptocurrency",
+};
+
+// Credits to the account that are not deposits
+const CREDIT_LABELS: Record<string, { th: string; en: string }> = {
+  bonus:      { th: "โบนัสเงินฝาก", en: "Deposit Bonus" },
+  commission: { th: "ค่าแนะนำเพื่อน", en: "Referral Commission" },
 };
 
 const STATUS_STYLE: Record<string, string> = {
@@ -40,7 +46,7 @@ export default async function HistoryPage(props: { params: Promise<{ lang: strin
   type Transaction = {
     _id: string;
     userId: string;
-    type: "deposit" | "withdrawal" | "transfer";
+    type: "deposit" | "withdrawal" | "transfer" | "bonus" | "commission";
     amount: number;
     method?: string;
     fromAccount?: string;
@@ -64,7 +70,7 @@ export default async function HistoryPage(props: { params: Promise<{ lang: strin
     createdAt: t.createdAt instanceof Date ? t.createdAt.toISOString() : String(t.createdAt),
   })) as Transaction[];
 
-  const funds = transactions.filter((t) => t.type === "deposit" || t.type === "withdrawal");
+  const funds = transactions.filter((t) => t.type === "deposit" || t.type === "withdrawal" || t.type in CREDIT_LABELS);
   const transfers = transactions.filter((t) => t.type === "transfer");
 
   return (
@@ -103,22 +109,26 @@ export default async function HistoryPage(props: { params: Promise<{ lang: strin
             {funds.map((t) => (
               <div key={t._id} className="flex items-center justify-between px-6 py-4 hover:bg-gray-50/50 transition-colors">
                 <div className="flex items-center gap-4">
-                  <div className={`w-9 h-9 rounded-full flex items-center justify-center ${t.type === "deposit" ? "bg-emerald-50" : "bg-red-50"}`}>
-                    {t.type === "deposit"
-                      ? <ArrowDownToLine className="w-4 h-4 text-emerald-600" />
-                      : <ArrowUpFromLine className="w-4 h-4 text-red-500" />}
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center ${t.type === "withdrawal" ? "bg-red-50" : "bg-emerald-50"}`}>
+                    {t.type === "withdrawal"
+                      ? <ArrowUpFromLine className="w-4 h-4 text-red-500" />
+                      : CREDIT_LABELS[t.type]
+                        ? <Gift className="w-4 h-4 text-emerald-600" />
+                        : <ArrowDownToLine className="w-4 h-4 text-emerald-600" />}
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-gray-900">
-                      {t.type === "deposit" ? (isth ? "ฝากเงิน" : "Deposit") : (isth ? "ถอนเงิน" : "Withdrawal")}
+                      {CREDIT_LABELS[t.type]
+                        ? CREDIT_LABELS[t.type][isth ? "th" : "en"]
+                        : t.type === "deposit" ? (isth ? "ฝากเงิน" : "Deposit") : (isth ? "ถอนเงิน" : "Withdrawal")}
                       {t.method && <span className="ml-2 text-xs font-normal text-gray-400">· {METHOD_LABELS[t.method] ?? t.method}</span>}
                     </p>
                     <p className="text-xs text-gray-400 mt-0.5">{t.transactionId} · {formatDate(new Date(t.createdAt), lang)}</p>
                   </div>
                 </div>
                 <div className="text-right flex flex-col items-end gap-1">
-                  <p className={`text-sm font-bold ${t.type === "deposit" ? "text-emerald-600" : "text-red-500"}`}>
-                    {t.type === "deposit" ? "+" : "−"}${Number(t.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  <p className={`text-sm font-bold ${t.type === "withdrawal" ? "text-red-500" : "text-emerald-600"}`}>
+                    {t.type === "withdrawal" ? "−" : "+"}${Number(t.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </p>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${STATUS_STYLE[t.status] ?? "bg-gray-100 text-gray-600"}`}>
                     {isth
