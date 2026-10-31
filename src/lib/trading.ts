@@ -97,7 +97,7 @@ export async function closeTrade(db: Db, trade: WithId<Document>, quote: Quote, 
         { _id: accountId, userId: trade.userId },
         { $inc: { balance: pnl, equity: pnl, freeMargin: pnl + (trade.margin ?? 0) } },
       );
-      await applyNegativeBalanceProtection(db, accountId, trade.accountId);
+      await applyNegativeBalanceProtection(db, accountId, trade.accountId, pnl);
     }
   } catch {
     await trades.updateOne(
@@ -119,7 +119,7 @@ export async function closeTrade(db: Db, trade: WithId<Document>, quote: Quote, 
  * A client can never owe more than they deposited: once the last position is closed,
  * a negative balance is reset to zero and the write-off is recorded as a transaction.
  */
-async function applyNegativeBalanceProtection(db: Db, accountId: ObjectId, accountIdStr: string) {
+async function applyNegativeBalanceProtection(db: Db, accountId: ObjectId, accountIdStr: string, closedPnl: number) {
   const stillOpen = await db.collection("trades").countDocuments({ accountId: accountIdStr, status: "open" });
   if (stillOpen > 0) return;
 
@@ -129,10 +129,14 @@ async function applyNegativeBalanceProtection(db: Db, accountId: ObjectId, accou
   );
   if (!before) {
     const acc = await db.collection("accounts").findOne({ _id: accountId }, { projection: { balance: 1 } });
-    if (acc && (acc.balance ?? 0) <= 0) await forfeitBonusesIfBusted(db, accountIdStr);
+    if (acc && (acc.balance ?? 0) <= 0) {
+      await forfeitBonusesIfBusted(db, accountIdStr);
+      if (closedPnl < 0) await bustCommission(db, accountId);
+    }
     return;
   }
   await forfeitBonusesIfBusted(db, accountIdStr);
+  await bustCommission(db, accountId);
 
   await db.collection("transactions").insertOne({
     userId: before.userId,
@@ -146,4 +150,10 @@ async function applyNegativeBalanceProtection(db: Db, accountId: ObjectId, accou
     createdAt: new Date(),
     updatedAt: new Date(),
   });
+}
+
+/** The account is wiped out: the referrer of its owner (if any) earns the wipe-out commission. */
+async function bustCommission(db: Db, accountId: ObjectId) {
+  const { recordBustCommission } = await import("@/lib/referral");
+  await recordBustCommission(db, accountId).catch((e) => console.error("[referral] bust:", e));
 }

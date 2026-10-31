@@ -63,7 +63,7 @@ export async function GET() {
     })),
     ...commissions.map((c) => ({
       id: `c-${c._id}`, kind: "referral" as const, title: "ค่าแนะนำเพื่อน",
-      detail: `${name(owners.get(c.referrerId?.toString()))} · ${c.percent}% ของ $${Number(c.depositUsd ?? 0).toLocaleString()} = $${Number(c.amountUsd ?? 0).toLocaleString()}`,
+      detail: `${name(owners.get(c.referrerId?.toString()))} · ${c.kind === "bust" ? "พอร์ตแตก " : ""}${c.percent}% ของ $${Number(c.depositUsd ?? 0).toLocaleString()} = $${Number(c.amountUsd ?? 0).toLocaleString()}`,
       status: c.status ?? null, href: "/admin/referrals", at: c.createdAt,
     })),
   ]

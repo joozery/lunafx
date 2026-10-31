@@ -18,6 +18,7 @@ interface PendingCommission {
   id: string;
   referrer: { name: string; email: string } | null;
   referred: { name: string; email: string } | null;
+  kind?: "deposit" | "bust";
   depositUsd: number;
   percent: number;
   amountUsd: number;
@@ -30,6 +31,7 @@ const fmtDate = (d: string) => new Date(d).toLocaleString("th-TH", { dateStyle: 
 export function AdminReferralsClient() {
   const [enabled, setEnabled] = useState(false);
   const [defaultPercent, setDefaultPercent] = useState("5");
+  const [bustPercent, setBustPercent] = useState("10");
   const [referrers, setReferrers] = useState<Referrer[]>([]);
   const [pending, setPending] = useState<PendingCommission[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -57,6 +59,7 @@ export function AdminReferralsClient() {
       if (s.setting) {
         setEnabled(Boolean(s.setting.enabled));
         setDefaultPercent(String(s.setting.defaultPercent));
+        setBustPercent(String(s.setting.bustPercent ?? 10));
       }
       setReferrers(r.referrers ?? []);
       setPending(r.pending ?? []);
@@ -77,7 +80,7 @@ export function AdminReferralsClient() {
   const saveSetting = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    const d = await patch("/api/admin/settings/referral", { enabled, defaultPercent: parseFloat(defaultPercent) }).catch(() => null);
+    const d = await patch("/api/admin/settings/referral", { enabled, defaultPercent: parseFloat(defaultPercent), bustPercent: parseFloat(bustPercent) }).catch(() => null);
     setSaving(false);
     if (d?.success) flash(true, "บันทึกการตั้งค่าสำเร็จ");
     else flash(false, d?.error ?? "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้");
@@ -142,6 +145,13 @@ export function AdminReferralsClient() {
               <p className="text-[11px] text-slate-500">เพื่อนฝาก $100 → ผู้แนะนำได้ <span className="font-bold text-emerald-600">${(parseFloat(defaultPercent)).toFixed(2)}</span></p>
             )}
           </div>
+          <div className="space-y-1">
+            <label className="font-bold text-slate-700 block">เพื่อนพอร์ตแตก ผู้แนะนำได้กี่ % ของยอดฝากสุทธิ</label>
+            <input type="number" step="0.01" min="0" max="100" required value={bustPercent} onChange={(e) => setBustPercent(e.target.value)} className={inputCls} />
+            {parseFloat(bustPercent) > 0 && (
+              <p className="text-[11px] text-slate-500">เพื่อนฝาก $1,000 แล้วพอร์ตแตก → ผู้แนะนำได้ <span className="font-bold text-emerald-600">${(parseFloat(bustPercent) * 10).toFixed(2)}</span> (ต้องกดอนุมัติ)</p>
+            )}
+          </div>
           <button type="submit" disabled={saving} className="w-full bg-gradient-to-r from-[#c6a87c] via-[#b89766] to-[#997a49] text-white font-black py-3 rounded-xl flex items-center justify-center gap-2">
             <Save className="w-4 h-4" />
             {saving ? "กำลังบันทึก..." : "บันทึก"}
@@ -181,7 +191,7 @@ export function AdminReferralsClient() {
                 {pending.map((c) => (
                   <tr key={c.id} className="border-b border-slate-50">
                     <td className="py-2 pr-4"><p className="font-bold">{c.referrer?.name}</p><p className="text-slate-400">{c.referrer?.email}</p></td>
-                    <td className="py-2 pr-4"><p className="font-bold">{c.referred?.name}</p><p className="text-slate-400">{c.referred?.email}</p></td>
+                    <td className="py-2 pr-4"><p className="font-bold">{c.referred?.name}{c.kind === "bust" && <span className="ml-1.5 text-[10px] font-black text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded">พอร์ตแตก</span>}</p><p className="text-slate-400">{c.referred?.email}</p></td>
                     <td className="py-2 pr-4 font-mono">${c.depositUsd}</td>
                     <td className="py-2 pr-4 font-mono">{c.percent}%</td>
                     <td className="py-2 pr-4 font-mono font-bold text-emerald-600">${c.amountUsd}</td>

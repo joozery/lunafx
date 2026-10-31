@@ -64,6 +64,7 @@ export async function GET() {
       id: c._id.toString(),
       referrer: names.get(c.referrerId.toString()) ?? null,
       referred: names.get(c.referredUserId.toString()) ?? null,
+      kind: c.kind ?? "deposit",
       depositUsd: c.depositUsd,
       percent: c.percent,
       amountUsd: c.amountUsd,

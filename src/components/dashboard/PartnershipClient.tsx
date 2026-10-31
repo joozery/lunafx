@@ -8,7 +8,7 @@ interface ReferralInfo {
   code?: string;
   percent?: number;
   friends?: { name: string; joinedAt: string }[];
-  commissions?: { id: string; depositUsd: number; percent: number; amountUsd: number; status: "pending" | "paid" | "rejected"; createdAt: string }[];
+  commissions?: { id: string; kind?: "deposit" | "bust"; depositUsd: number; percent: number; amountUsd: number; status: "pending" | "paid" | "rejected"; createdAt: string }[];
 }
 
 const STATUS: Record<string, { th: string; en: string; cls: string }> = {
@@ -113,7 +113,7 @@ export function PartnershipClient({ lang }: { lang: string }) {
             <ul className="divide-y divide-slate-100 text-xs">
               {info.commissions!.map((c) => (
                 <li key={c.id} className="flex items-center justify-between py-2 gap-2">
-                  <span className="text-slate-500">{isth ? "เพื่อนฝาก" : "Deposit"} ${c.depositUsd} × {c.percent}%</span>
+                  <span className="text-slate-500">{c.kind === "bust" ? (isth ? "พอร์ตเพื่อนแตก · ยอดฝาก" : "Friend wiped out · deposits") : (isth ? "เพื่อนฝาก" : "Deposit")} ${c.depositUsd} × {c.percent}%</span>
                   <span className="font-mono font-black text-emerald-600">+${c.amountUsd}</span>
                   <span className={`px-2 py-0.5 rounded-full border text-[10px] font-bold ${STATUS[c.status]?.cls}`}>{isth ? STATUS[c.status]?.th : STATUS[c.status]?.en}</span>
                 </li>

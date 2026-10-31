@@ -9,9 +9,10 @@ export const REFERRAL_COOKIE = "luna_ref";
 export interface ReferralSetting {
   enabled: boolean;
   defaultPercent: number; // % of each approved deposit made by a referred user
+  bustPercent: number; // % of a referred user's net deposits, paid when their account is wiped out
 }
 
-export const DEFAULT_REFERRAL_SETTING: ReferralSetting = { enabled: false, defaultPercent: 5 };
+export const DEFAULT_REFERRAL_SETTING: ReferralSetting = { enabled: false, defaultPercent: 5, bustPercent: 10 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -107,6 +108,68 @@ export async function recordReferralCommission(db: Db, depositTxn: WithId<Docume
   }
 }
 
+/**
+ * A referred user's real account was wiped out: record a pending commission of bustPercent on the
+ * net deposits made since the previous wipe-out. Idempotent per account and period.
+ */
+export async function recordBustCommission(db: Db, accountId: ObjectId): Promise<void> {
+  const setting = await getReferralSetting(db);
+  if (!setting.enabled || !(setting.bustPercent > 0)) return;
+
+  const account = await db.collection("accounts").findOne({ _id: accountId }, { projection: { userId: 1, accountNumber: 1, isDemo: 1 } });
+  if (!account || account.isDemo) return;
+
+  const owner = await db.collection("users").findOne({ _id: account.userId }, { projection: { referredBy: 1, firstName: 1, lastName: 1 } });
+  if (!owner?.referredBy) return;
+  const referrer = await db.collection("users").findOne({ _id: owner.referredBy }, { projection: { firstName: 1, lastName: 1, email: 1 } });
+  if (!referrer) return;
+
+  const commissions = db.collection("referralCommissions");
+  const last = await commissions.findOne({ kind: "bust", accountId }, { sort: { createdAt: -1 }, projection: { createdAt: 1 } });
+  const since = last?.createdAt ?? new Date(0);
+
+  const sum = async (match: Document) => {
+    const [r] = await db.collection("transactions").aggregate([
+      { $match: { accountNumber: account.accountNumber, createdAt: { $gt: since }, ...match } },
+      { $group: { _id: null, total: { $sum: "$amount" } } },
+    ]).toArray();
+    return r?.total ?? 0;
+  };
+  const deposits = await sum({ type: "deposit", status: "completed" });
+  const withdrawn = await sum({ type: "withdrawal", status: { $in: ["pending", "completed"] } });
+  const netUsd = round2(deposits - withdrawn);
+  const amountUsd = round2((netUsd * setting.bustPercent) / 100);
+  if (amountUsd <= 0) return;
+
+  const result = await commissions.updateOne(
+    { kind: "bust", accountId, since: since.getTime() },
+    {
+      $setOnInsert: {
+        kind: "bust",
+        accountId,
+        since: since.getTime(),
+        referrerId: referrer._id,
+        referredUserId: account.userId,
+        depositUsd: netUsd,
+        percent: setting.bustPercent,
+        amountUsd,
+        status: "pending",
+        createdAt: new Date(),
+      },
+    },
+    { upsert: true },
+  );
+
+  if (result.upsertedCount > 0) {
+    void notifyAdmins(
+      `💥 พอร์ตเพื่อนแตก — ค่าคอมรออนุมัติ\nผู้แนะนำ: ${referrer.firstName ?? ""} ${referrer.lastName ?? ""} (${referrer.email})\n` +
+      `เพื่อนที่พอร์ตแตก: ${owner.firstName ?? ""} ${owner.lastName ?? ""} #${account.accountNumber}\nยอดฝากสุทธิ: $${netUsd} × ${setting.bustPercent}% = $${amountUsd}\n` +
+      `อนุมัติที่: หลังบ้าน → ระบบแนะนำเพื่อน\nเวลา: ${thaiTime()}`,
+      "referral",
+    );
+  }
+}
+
 /** Pay an approved commission into the referrer's oldest live trading account. */
 export async function payReferralCommission(db: Db, commissionId: ObjectId): Promise<{ ok: true } | { ok: false; error: string }> {
   const commissions = db.collection("referralCommissions");
@@ -139,7 +202,9 @@ export async function payReferralCommission(db: Db, commissionId: ObjectId): Pro
     amount: c.amountUsd,
     status: "completed",
     transactionId: `REF-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
-    adminNotes: `ค่าแนะนำ ${c.percent}% จากยอดฝาก $${c.depositUsd}`,
+    adminNotes: c.kind === "bust"
+      ? `ค่าคอม ${c.percent}% จากพอร์ตเพื่อนแตก (ยอดฝากสุทธิ $${c.depositUsd})`
+      : `ค่าแนะนำ ${c.percent}% จากยอดฝาก $${c.depositUsd}`,
     createdAt: new Date(),
     updatedAt: new Date(),
   });

@@ -18,10 +18,15 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "เปอร์เซ็นต์ต้องอยู่ระหว่าง 0 – 100" }, { status: 400 });
   }
 
+  const bustPercent = Number(body.bustPercent ?? 10);
+  if (!Number.isFinite(bustPercent) || bustPercent < 0 || bustPercent > 100) {
+    return NextResponse.json({ error: "เปอร์เซ็นต์ต้องอยู่ระหว่าง 0 – 100" }, { status: 400 });
+  }
+
   const db = await getDb();
   await db.collection("settings").updateOne(
     { key: REFERRAL_SETTING_KEY },
-    { $set: { key: REFERRAL_SETTING_KEY, value: { enabled: Boolean(body.enabled), defaultPercent: Math.round(defaultPercent * 100) / 100 }, updatedAt: new Date() } },
+    { $set: { key: REFERRAL_SETTING_KEY, value: { enabled: Boolean(body.enabled), defaultPercent: Math.round(defaultPercent * 100) / 100, bustPercent: Math.round(bustPercent * 100) / 100 }, updatedAt: new Date() } },
     { upsert: true },
   );
   return NextResponse.json({ success: true });

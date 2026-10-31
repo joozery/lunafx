@@ -38,6 +38,7 @@ export async function GET() {
     friends: friends.map((f) => ({ name: `${f.firstName ?? ""} ${(f.lastName ?? "").slice(0, 1)}.`.trim(), joinedAt: f.createdAt })),
     commissions: commissions.map((c) => ({
       id: c._id.toString(),
+      kind: c.kind ?? "deposit",
       depositUsd: c.depositUsd,
       percent: c.percent,
       amountUsd: c.amountUsd,
