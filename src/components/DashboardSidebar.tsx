@@ -36,7 +36,7 @@ interface MenuSection {
   items: MenuItem[];
 }
 
-export function DashboardSidebar({ lang, user }: { lang: string; user: any }) {
+export function DashboardSidebar({ lang, user, variant = "desktop" }: { lang: string; user: any; variant?: "desktop" | "drawer" }) {
   const pathname = usePathname();
   const isth = lang === "th";
 
@@ -123,7 +123,13 @@ export function DashboardSidebar({ lang, user }: { lang: string; user: any }) {
   ];
 
   return (
-    <aside className="w-64 hidden md:flex flex-col bg-white border-r border-slate-200/80 h-screen max-h-screen sticky top-0 z-20 shadow-2xs">
+    <aside
+      className={
+        variant === "drawer"
+          ? "w-full flex flex-col bg-white h-full"
+          : "w-64 hidden md:flex flex-col bg-white border-r border-slate-200/80 h-screen max-h-screen sticky top-0 z-20 shadow-2xs"
+      }
+    >
       
       {/* Brand Header */}
       <div className="pt-6 pb-4 px-6 flex flex-col items-center justify-center border-b border-slate-100 shrink-0">
