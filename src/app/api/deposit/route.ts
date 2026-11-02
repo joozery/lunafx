@@ -93,9 +93,26 @@ export async function POST(req: NextRequest) {
     slip2goCode   = result.code;
     slip2goData   = result.data;
 
+    // Slip2Go marks a slip "used" on the first check even when we rejected it (e.g. the
+    // user typed the wrong amount), so a corrected resubmission comes back as duplicate.
+    // Only reject when the slip is really in our own records; otherwise send it to an admin.
+    if (result.status === "duplicate") {
+      const transRef = result.data?.transRef;
+      const usedHere = transRef
+        ? await db.collection("transactions").findOne({
+            type: "deposit",
+            "slip2go.data.transRef": transRef,
+            status: { $in: ["pending", "completed"] },
+          })
+        : null;
+      if (usedHere) {
+        return NextResponse.json({ error: SLIP_ERROR_TH.duplicate, slip2goCode: result.code }, { status: 400 });
+      }
+      // Not credited here before → fall through to pending (manual review)
+    }
+
     // Hard-reject on definitive fraud / mismatches
     if (
-      result.status === "duplicate" ||
       result.status === "fake" ||
       result.status === "amount_mismatch" ||
       result.status === "receiver_mismatch"
