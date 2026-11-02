@@ -447,7 +447,7 @@ export function FundsClient({ lang }: { lang: string }) {
                 <input
                   type="number"
                   min="500"
-                  step="100"
+                  step="0.01"
                   value={amountThb}
                   onChange={(e) => setAmountThb(e.target.value)}
                   placeholder="0.00"
