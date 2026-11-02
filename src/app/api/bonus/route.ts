@@ -20,6 +20,8 @@ export async function GET(req: NextRequest) {
         lotsPerBonusUsd: s.lotsPerBonusUsd,
         maxWithdrawUsd: s.maxWithdrawUsd,
         firstDepositOnly: s.firstDepositOnly,
+        requiredPips: s.requiredPips,
+        pipMode: s.pipMode,
       }
     : null;
 

@@ -1,8 +1,8 @@
 import "server-only";
 import type { Db, Document, WithId } from "mongodb";
 import {
-  calcBonus, requiredLots, withdrawAllowance,
-  DEFAULT_BONUS_SETTING, type BonusSetting, type BonusStatus,
+  calcBonus, requiredLots, withdrawAllowance, countedPips,
+  DEFAULT_BONUS_SETTING, type BonusSetting, type BonusStatus, type PipMode,
 } from "@/lib/bonusRules";
 
 export const BONUS_SETTING_KEY = "depositBonus";
@@ -46,6 +46,8 @@ export async function grantDepositBonus(db: Db, depositTxn: WithId<Document>): P
         bonusUsd,
         requiredLots: requiredLots(setting, bonusUsd),
         maxWithdrawUsd: setting.maxWithdrawUsd,
+        requiredPips: setting.requiredPips,
+        pipMode: setting.pipMode,
         status: "active",
         createdAt: new Date(),
       },
@@ -73,9 +75,29 @@ export async function grantDepositBonus(db: Db, depositTxn: WithId<Document>): P
   return bonusUsd;
 }
 
+/** Closed trades on an account that count toward a bonus granted at `since` (opened after it). */
+export async function bonusTrades(db: Db, accountId: string, since: Date, until?: Date | null) {
+  const match: Document = { accountId, status: "closed", openTime: { $gte: since } };
+  if (until) match.closeTime = { $lte: until };
+  return db.collection("trades")
+    .find(match, { projection: { symbol: 1, type: 1, volume: 1, openPrice: 1, closePrice: 1, pnl: 1, openTime: 1, closeTime: 1 } })
+    .sort({ openTime: 1 })
+    .toArray();
+}
+
+/** Lots and pips a set of closed trades adds up to. */
+export function sumTurnover(trades: Document[], pipMode: PipMode) {
+  let lots = 0, pips = 0;
+  for (const t of trades) {
+    lots += t.volume ?? 0;
+    pips += countedPips(t as { symbol: string; openPrice: number; closePrice: number; volume: number }, pipMode);
+  }
+  return { lots: Math.round(lots * 100) / 100, pips: Math.round(pips * 10) / 10 };
+}
+
 /**
- * Turnover progress for an account. Lots count from closed trades opened after the oldest
- * active bonus; once they reach the combined requirement, all active bonuses complete.
+ * Turnover progress for an account. Lots and pips count from closed trades opened after the
+ * oldest active bonus; once both reach the combined requirement, all active bonuses complete.
  */
 export async function getBonusStatus(db: Db, account: WithId<Document>): Promise<BonusStatus> {
   const accountId = account._id.toString();
@@ -84,27 +106,29 @@ export async function getBonusStatus(db: Db, account: WithId<Document>): Promise
   const active = await bonuses.find({ accountId, status: "active" }).sort({ createdAt: 1 }).toArray();
   if (active.length > 0) {
     const since: Date = active[0].createdAt;
-    const [agg] = await db.collection("trades").aggregate([
-      { $match: { accountId, status: "closed", openTime: { $gte: since } } },
-      { $group: { _id: null, lots: { $sum: "$volume" } } },
-    ]).toArray();
-    const tradedLots = Math.round((agg?.lots ?? 0) * 100) / 100;
+    const pipMode: PipMode = active[0].pipMode === "lot_weighted" ? "lot_weighted" : "distance";
+    const { lots: tradedLots, pips: tradedPips } = sumTurnover(await bonusTrades(db, accountId, since), pipMode);
     const required = Math.round(active.reduce((s, b) => s + (b.requiredLots ?? 0), 0) * 100) / 100;
+    const requiredPips = Math.round(active.reduce((s, b) => s + (b.requiredPips ?? 0), 0) * 10) / 10;
 
-    if (tradedLots < required) {
+    if (tradedLots < required || tradedPips < requiredPips) {
       return {
         active: {
           bonusUsd: active.reduce((s, b) => s + b.bonusUsd, 0),
           requiredLots: required,
           tradedLots,
-          remainingLots: Math.round((required - tradedLots) * 100) / 100,
+          remainingLots: Math.max(0, Math.round((required - tradedLots) * 100) / 100),
+          requiredPips,
+          tradedPips,
+          remainingPips: Math.max(0, Math.round((requiredPips - tradedPips) * 10) / 10),
+          pipMode,
         },
         withdrawLimitUsd: null,
       };
     }
     await bonuses.updateMany(
       { _id: { $in: active.map((b) => b._id) }, status: "active" },
-      { $set: { status: "completed", completedAt: new Date() } },
+      { $set: { status: "completed", completedAt: new Date(), completedLots: tradedLots, completedPips: tradedPips } },
     );
   }
 

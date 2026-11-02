@@ -9,7 +9,16 @@ export interface BonusSetting {
   lotsPerBonusUsd: number;      // turnover: lots to trade per $1 of bonus before withdrawing
   maxWithdrawUsd: number;       // max withdrawal once turnover is met (0 = no limit); later deposits add to it
   firstDepositOnly: boolean;    // only the first approved deposit of an account qualifies
+  requiredPips: number;         // pips to trade per bonus before withdrawing (0 = no pip condition)
+  pipMode: PipMode;             // how a trade's pips are counted toward requiredPips
 }
+
+/**
+ * "distance": pips the price moved between open and close, whatever the lot size.
+ * "lot_weighted": that distance multiplied by the lot size (15 pips on 2 lots = 30).
+ * Both count losing trades too (absolute distance).
+ */
+export type PipMode = "distance" | "lot_weighted";
 
 export const DEFAULT_BONUS_SETTING: BonusSetting = {
   enabled: false,
@@ -20,10 +29,42 @@ export const DEFAULT_BONUS_SETTING: BonusSetting = {
   lotsPerBonusUsd: 0.1,
   maxWithdrawUsd: 0,
   firstDepositOnly: true,
+  requiredPips: 0,
+  pipMode: "distance",
 };
 
+/** Pip size per symbol; matches the step the WebTrader uses for SL/TP. */
+export const PIP_SIZE: Record<string, number> = {
+  XAUUSD: 0.01, XAGUSD: 0.001,
+  EURUSD: 0.0001, GBPUSD: 0.0001, USDCHF: 0.0001, AUDUSD: 0.0001, USDCAD: 0.0001, NZDUSD: 0.0001,
+  EURGBP: 0.0001, EURAUD: 0.0001, EURCHF: 0.0001, GBPCHF: 0.0001,
+  USDJPY: 0.01, EURJPY: 0.01, GBPJPY: 0.01, AUDJPY: 0.01, NZDJPY: 0.01, CADJPY: 0.01, CHFJPY: 0.01,
+  BTCUSD: 1, ETHUSD: 0.01, USOIL: 0.01, US30: 1,
+};
+
+export function pipSize(symbol: string): number {
+  return PIP_SIZE[symbol] ?? (symbol.endsWith("JPY") ? 0.01 : 0.0001);
+}
+
+/** Pips moved by a closed trade (always >= 0), rounded to 0.1 pip. */
+export function tradePips(t: { symbol: string; openPrice: number; closePrice?: number | null }): number {
+  if (t.closePrice == null || !Number.isFinite(t.closePrice) || !Number.isFinite(t.openPrice)) return 0;
+  return Math.round((Math.abs(t.closePrice - t.openPrice) / pipSize(t.symbol)) * 10) / 10;
+}
+
+/** Pips a closed trade counts toward the bonus pip condition under `mode`. */
+export function countedPips(t: { symbol: string; openPrice: number; closePrice?: number | null; volume: number }, mode: PipMode): number {
+  const p = tradePips(t);
+  return Math.round((mode === "lot_weighted" ? p * (t.volume || 0) : p) * 10) / 10;
+}
+
 export interface BonusStatus {
-  active: { bonusUsd: number; requiredLots: number; tradedLots: number; remainingLots: number } | null;
+  active: {
+    bonusUsd: number;
+    requiredLots: number; tradedLots: number; remainingLots: number;
+    requiredPips: number; tradedPips: number; remainingPips: number; // requiredPips 0 = no pip condition
+    pipMode: PipMode;
+  } | null;
   withdrawLimitUsd: number | null; // null = no cap
 }
 
@@ -58,8 +99,10 @@ export function parseBonusSetting(body: Record<string, unknown>): BonusSetting |
     lotsPerBonusUsd: num("lotsPerBonusUsd"),
     maxWithdrawUsd: num("maxWithdrawUsd"),
     firstDepositOnly: Boolean(body.firstDepositOnly),
+    requiredPips: num("requiredPips") || 0,
+    pipMode: body.pipMode === "lot_weighted" ? "lot_weighted" : "distance",
   };
-  const fields = [s.minDepositUsd, s.bonusValue, s.maxBonusUsd, s.lotsPerBonusUsd, s.maxWithdrawUsd];
+  const fields = [s.minDepositUsd, s.bonusValue, s.maxBonusUsd, s.lotsPerBonusUsd, s.maxWithdrawUsd, s.requiredPips];
   if (fields.some((n) => !Number.isFinite(n) || n < 0)) return "กรุณากรอกตัวเลขที่ไม่ติดลบให้ครบทุกช่อง";
   if (s.bonusValue <= 0) return "จำนวนโบนัสต้องมากกว่า 0";
   if (s.bonusType === "percent" && s.bonusValue > 1000) return "โบนัสแบบเปอร์เซ็นต์ต้องไม่เกิน 1000%";
@@ -70,5 +113,6 @@ export function parseBonusSetting(body: Record<string, unknown>): BonusSetting |
     maxBonusUsd: round2(s.maxBonusUsd),
     lotsPerBonusUsd: Math.round(s.lotsPerBonusUsd * 1000) / 1000,
     maxWithdrawUsd: round2(s.maxWithdrawUsd),
+    requiredPips: Math.round(s.requiredPips * 10) / 10,
   };
 }

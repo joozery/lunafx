@@ -39,9 +39,12 @@ export async function POST(req: NextRequest) {
   /* เงื่อนไขโบนัส: ห้ามถอนจนกว่าจะเทรดครบ และถอนได้ไม่เกินเพดาน (ถ้าตั้งไว้) */
   const bonus = await getBonusStatus(db, account);
   if (bonus.active) {
-    return NextResponse.json({
-      error: `ยังถอนไม่ได้: ต้องเทรดอีก ${bonus.active.remainingLots} lots (เทรดแล้ว ${bonus.active.tradedLots}/${bonus.active.requiredLots} lots) เพื่อปลดล็อกโบนัส`,
-    }, { status: 400 });
+    const a = bonus.active;
+    const missing = [
+      a.remainingLots > 0 ? `เทรดอีก ${a.remainingLots} lots (เทรดแล้ว ${a.tradedLots}/${a.requiredLots} lots)` : "",
+      a.remainingPips > 0 ? `ทำอีก ${a.remainingPips.toLocaleString()} pips (ทำแล้ว ${a.tradedPips.toLocaleString()}/${a.requiredPips.toLocaleString()} pips)` : "",
+    ].filter(Boolean).join(" และ ");
+    return NextResponse.json({ error: `ยังถอนไม่ได้: ต้อง${missing} เพื่อปลดล็อกโบนัส` }, { status: 400 });
   }
   if (bonus.withdrawLimitUsd !== null && amountUsd > bonus.withdrawLimitUsd) {
     return NextResponse.json({ error: `ถอนได้สูงสุด $${bonus.withdrawLimitUsd} ตามเงื่อนไขโบนัส` }, { status: 400 });

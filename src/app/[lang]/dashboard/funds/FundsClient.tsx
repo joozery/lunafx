@@ -489,8 +489,8 @@ export function FundsClient({ lang }: { lang: string }) {
                         <p className="font-black">🎁 {isth ? `ได้รับโบนัส +$${bonus} (รวมเป็น $${(parseFloat(amountUsd) + bonus).toFixed(2)})` : `Bonus +$${bonus} (total $${(parseFloat(amountUsd) + bonus).toFixed(2)})`}</p>
                         <p className="mt-1">
                           {isth
-                            ? `ต้องเทรดครบ ${requiredLots(offer, bonus)} lots ก่อนจึงจะถอนเงินได้${bonusOffer.maxWithdrawUsd > 0 ? ` · ถอนได้สูงสุด $${bonusOffer.maxWithdrawUsd}` : ""}`
-                            : `Trade ${requiredLots(offer, bonus)} lots before withdrawing${bonusOffer.maxWithdrawUsd > 0 ? ` · max withdrawal $${bonusOffer.maxWithdrawUsd}` : ""}`}
+                            ? `ต้องเทรดครบ ${requiredLots(offer, bonus)} lots${bonusOffer.requiredPips > 0 ? ` และ ${bonusOffer.requiredPips.toLocaleString()} pips` : ""} ก่อนจึงจะถอนเงินได้${bonusOffer.maxWithdrawUsd > 0 ? ` · ถอนได้สูงสุด $${bonusOffer.maxWithdrawUsd}` : ""}`
+                            : `Trade ${requiredLots(offer, bonus)} lots${bonusOffer.requiredPips > 0 ? ` and ${bonusOffer.requiredPips.toLocaleString()} pips` : ""} before withdrawing${bonusOffer.maxWithdrawUsd > 0 ? ` · max withdrawal $${bonusOffer.maxWithdrawUsd}` : ""}`}
                           {bonusOffer.firstDepositOnly && (isth ? " · เฉพาะการฝากครั้งแรก" : " · first deposit only")}
                         </p>
                       </>

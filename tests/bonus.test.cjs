@@ -9,7 +9,7 @@ function loadTs(path) {
   vm.runInNewContext(code, { exports: module.exports, module });
   return module.exports;
 }
-const { calcBonus, requiredLots, withdrawAllowance, parseBonusSetting, DEFAULT_BONUS_SETTING } = loadTs('src/lib/bonusRules.ts');
+const { calcBonus, requiredLots, withdrawAllowance, parseBonusSetting, DEFAULT_BONUS_SETTING, tradePips, countedPips } = loadTs('src/lib/bonusRules.ts');
 const on = { ...DEFAULT_BONUS_SETTING, enabled: true };
 
 test('fixed bonus: deposit $20 gets $30, below minimum gets nothing', () => {
@@ -40,4 +40,27 @@ test('admin setting validation', () => {
   const ok = parseBonusSetting({ enabled: true, minDepositUsd: 20, bonusType: 'fixed', bonusValue: 30, maxBonusUsd: 0, lotsPerBonusUsd: 0.1, maxWithdrawUsd: 100, firstDepositOnly: true });
   assert.equal(ok.bonusValue, 30);
   assert.equal(ok.maxWithdrawUsd, 100);
+});
+
+test('pips: distance per symbol, losing trades count, open trades do not', () => {
+  assert.equal(tradePips({ symbol: 'EURUSD', openPrice: 1.1, closePrice: 1.1015 }), 15);
+  assert.equal(tradePips({ symbol: 'EURUSD', openPrice: 1.1015, closePrice: 1.1 }), 15);
+  assert.equal(tradePips({ symbol: 'XAUUSD', openPrice: 2650.0, closePrice: 2655.5 }), 550);
+  assert.equal(tradePips({ symbol: 'USDJPY', openPrice: 150.0, closePrice: 150.25 }), 25);
+  assert.equal(tradePips({ symbol: 'EURUSD', openPrice: 1.1, closePrice: null }), 0);
+});
+
+test('pips: lot-weighted mode multiplies by volume', () => {
+  const t = { symbol: 'EURUSD', openPrice: 1.1, closePrice: 1.1015, volume: 2 };
+  assert.equal(countedPips(t, 'distance'), 15);
+  assert.equal(countedPips(t, 'lot_weighted'), 30);
+});
+
+test('pip setting validation', () => {
+  const base = { minDepositUsd: 20, bonusValue: 30, maxBonusUsd: 0, lotsPerBonusUsd: 0.1, maxWithdrawUsd: 0 };
+  assert.equal(typeof parseBonusSetting({ ...base, requiredPips: -5 }), 'string');
+  const ok = parseBonusSetting({ ...base, requiredPips: 100000, pipMode: 'lot_weighted' });
+  assert.equal(ok.requiredPips, 100000);
+  assert.equal(ok.pipMode, 'lot_weighted');
+  assert.equal(parseBonusSetting(base).pipMode, 'distance');
 });

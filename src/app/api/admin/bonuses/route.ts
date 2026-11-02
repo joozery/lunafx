@@ -11,13 +11,13 @@ export async function GET() {
   const docs = await db.collection("bonuses").find().sort({ createdAt: -1 }).limit(100).toArray();
 
   // Turnover progress for accounts that still have an active bonus
-  const progress = new Map<string, number>();
+  const progress = new Map<string, { lots: number; pips: number }>();
   for (const accountId of new Set(docs.filter((b) => b.status === "active").map((b) => b.accountId as string))) {
     if (!ObjectId.isValid(accountId)) continue;
     const account = await db.collection("accounts").findOne({ _id: new ObjectId(accountId) });
     if (!account) continue;
     const st = await getBonusStatus(db, account);
-    if (st.active) progress.set(accountId, st.active.tradedLots);
+    if (st.active) progress.set(accountId, { lots: st.active.tradedLots, pips: st.active.tradedPips });
   }
   return NextResponse.json({
     bonuses: docs.map((b) => ({
@@ -26,7 +26,9 @@ export async function GET() {
       depositUsd: b.depositUsd,
       bonusUsd: b.bonusUsd,
       requiredLots: b.requiredLots,
-      tradedLots: b.status === "active" ? progress.get(b.accountId) ?? 0 : null,
+      tradedLots: b.status === "active" ? progress.get(b.accountId)?.lots ?? 0 : null,
+      requiredPips: b.requiredPips ?? 0,
+      tradedPips: b.status === "active" ? progress.get(b.accountId)?.pips ?? 0 : null,
       maxWithdrawUsd: b.maxWithdrawUsd ?? 0,
       status: b.status,
       createdAt: b.createdAt,

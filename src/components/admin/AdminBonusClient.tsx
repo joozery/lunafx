@@ -11,6 +11,8 @@ interface BonusRow {
   bonusUsd: number;
   requiredLots: number;
   tradedLots: number | null; // only for active bonuses
+  requiredPips: number;
+  tradedPips: number | null;
   maxWithdrawUsd: number;
   status: "active" | "completed" | "forfeited";
   createdAt: string;
@@ -61,6 +63,8 @@ export function AdminBonusClient() {
     lotsPerBonusUsd: Number(form.lotsPerBonusUsd) || 0,
     maxWithdrawUsd: Number(form.maxWithdrawUsd) || 0,
     firstDepositOnly: Boolean(form.firstDepositOnly),
+    requiredPips: Number(form.requiredPips) || 0,
+    pipMode: form.pipMode === "lot_weighted" ? "lot_weighted" : "distance",
   };
   const examples = [preview.minDepositUsd, 50, 100, 500].filter((v, i, a) => v > 0 && a.indexOf(v) === i).sort((a, b) => a - b);
 
@@ -158,6 +162,28 @@ export function AdminBonusClient() {
                 <p className="text-[11px] text-slate-400">ยอดที่ลูกค้าฝากเพิ่มภายหลังจะถอนได้เพิ่มตามจำนวนนั้น</p>
               </div>
 
+              <div className="space-y-2">
+                <label className="font-bold text-slate-700 block">6. เงื่อนไข Pip: ต้องทำกี่ pips ต่อโบนัส 1 ครั้ง (ใส่ 0 = ไม่ใช้เงื่อนไข pip)</label>
+                <input type="number" step="0.1" min="0" required value={String(form.requiredPips)} onChange={(e) => set("requiredPips", e.target.value)} className={inputCls} placeholder="เช่น 100000" />
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    ["distance", "นับระยะราคา", "EURUSD 2 lot วิ่ง 15 pips = 15 pips"],
+                    ["lot_weighted", "ระยะราคา × lot", "EURUSD 2 lot วิ่ง 15 pips = 30 pips"],
+                  ] as const).map(([v, label, ex]) => (
+                    <button key={v} type="button" onClick={() => set("pipMode", v)}
+                      className={`p-2.5 rounded-xl border text-left ${form.pipMode === v ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-slate-50 text-slate-700"}`}>
+                      <span className="font-bold block">{label}</span>
+                      <span className={`text-[10px] ${form.pipMode === v ? "text-slate-300" : "text-slate-400"}`}>{ex}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  นับจากออเดอร์ที่ปิดแล้วหลังได้รับโบนัส ทั้งออเดอร์กำไรและขาดทุน (นับระยะที่ราคาวิ่ง) ลูกค้าต้องทำครบทั้ง lot และ pip จึงจะถอนได้
+                  · 1 pip: ทองคำ 0.01, คู่เงินทั่วไป 0.0001, คู่ JPY 0.01, BTC 1
+                  · ใช้กับโบนัสที่ให้หลังจากบันทึกเท่านั้น
+                </p>
+              </div>
+
               <label className="flex items-center gap-2 font-bold text-slate-700">
                 <input type="checkbox" checked={Boolean(form.firstDepositOnly)} onChange={(e) => set("firstDepositOnly", e.target.checked)} className="w-4 h-4 accent-[#b89766]" />
                 ให้โบนัสเฉพาะการฝากครั้งแรกของแต่ละบัญชี
@@ -197,6 +223,9 @@ export function AdminBonusClient() {
                   <div className="flex justify-between"><span className="text-slate-400">โบนัส</span><span className="font-bold text-emerald-400">+${bonus}</span></div>
                   <div className="flex justify-between"><span className="text-slate-400">ยอดเทรดได้</span><span className="font-bold text-amber-400">${(dep + bonus).toFixed(2)}</span></div>
                   <div className="flex justify-between"><span className="text-slate-400">ต้องเทรดก่อนถอน</span><span className="font-bold">{requiredLots(preview, bonus)} lots</span></div>
+                  {preview.requiredPips > 0 && (
+                    <div className="flex justify-between"><span className="text-slate-400">และต้องทำ</span><span className="font-bold">{preview.requiredPips.toLocaleString()} pips</span></div>
+                  )}
                 </div>
               );
             })}
@@ -214,7 +243,7 @@ export function AdminBonusClient() {
             <table className="w-full text-xs">
               <thead>
                 <tr className="text-left text-slate-400 border-b border-slate-100">
-                  {["บัญชี", "ยอดฝาก", "โบนัส", "เทรดแล้ว / ต้องเทรด", "ถอนสูงสุด", "สถานะ", "วันที่"].map((h) => <th key={h} className="py-2 pr-4 font-semibold">{h}</th>)}
+                  {["บัญชี", "ยอดฝาก", "โบนัส", "Lot เทรดแล้ว / ต้องเทรด", "Pip ทำแล้ว / ต้องทำ", "ถอนสูงสุด", "สถานะ", "วันที่"].map((h) => <th key={h} className="py-2 pr-4 font-semibold">{h}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -225,6 +254,13 @@ export function AdminBonusClient() {
                     <td className="py-2 pr-4 font-mono text-emerald-600 font-bold">+${r.bonusUsd}</td>
                     <td className="py-2 pr-4 font-mono">
                       {r.tradedLots !== null ? <><span className="font-bold text-amber-600">{r.tradedLots}</span> / {r.requiredLots} lots</> : `${r.requiredLots} lots`}
+                    </td>
+                    <td className="py-2 pr-4 font-mono">
+                      {r.requiredPips > 0
+                        ? r.tradedPips !== null
+                          ? <><span className="font-bold text-amber-600">{r.tradedPips.toLocaleString()}</span> / {r.requiredPips.toLocaleString()} pips</>
+                          : `${r.requiredPips.toLocaleString()} pips`
+                        : <span className="text-slate-300">—</span>}
                     </td>
                     <td className="py-2 pr-4 font-mono">{r.maxWithdrawUsd > 0 ? `$${r.maxWithdrawUsd}` : "ไม่จำกัด"}</td>
                     <td className="py-2 pr-4">
@@ -252,5 +288,7 @@ function toForm(s: BonusSetting): Record<keyof BonusSetting, string | boolean> {
     lotsPerBonusUsd: String(s.lotsPerBonusUsd),
     maxWithdrawUsd: String(s.maxWithdrawUsd),
     firstDepositOnly: s.firstDepositOnly,
+    requiredPips: String(s.requiredPips ?? 0),
+    pipMode: s.pipMode ?? "distance",
   };
 }

@@ -430,12 +430,21 @@ export default function WithdrawPage(props: { params: Promise<{ lang: string }> 
             {bonusStatus?.active && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2 text-xs text-amber-800">
                 <p className="font-black">
-                  🔒 {isth ? `มีโบนัส $${bonusStatus.active.bonusUsd} — ต้องเทรดอีก ${bonusStatus.active.remainingLots} lots จึงจะถอนได้` : `Bonus $${bonusStatus.active.bonusUsd} — trade ${bonusStatus.active.remainingLots} more lots to unlock withdrawals`}
+                  🔒 {isth ? `มีโบนัส $${bonusStatus.active.bonusUsd} — ต้องทำเงื่อนไขให้ครบจึงจะถอนได้` : `Bonus $${bonusStatus.active.bonusUsd} — complete the turnover to unlock withdrawals`}
                 </p>
-                <div className="h-2 rounded-full bg-amber-100 overflow-hidden">
-                  <div className="h-full bg-amber-500" style={{ width: `${Math.min(100, (bonusStatus.active.tradedLots / bonusStatus.active.requiredLots) * 100)}%` }} />
-                </div>
-                <p className="font-mono">{bonusStatus.active.tradedLots} / {bonusStatus.active.requiredLots} lots</p>
+                {[
+                  { done: bonusStatus.active.tradedLots, need: bonusStatus.active.requiredLots, unit: "lots" },
+                  ...(bonusStatus.active.requiredPips > 0
+                    ? [{ done: bonusStatus.active.tradedPips, need: bonusStatus.active.requiredPips, unit: "pips" }]
+                    : []),
+                ].map((r) => (
+                  <div key={r.unit} className="space-y-1">
+                    <div className="h-2 rounded-full bg-amber-100 overflow-hidden">
+                      <div className={`h-full ${r.done >= r.need ? "bg-emerald-500" : "bg-amber-500"}`} style={{ width: `${r.need > 0 ? Math.min(100, (r.done / r.need) * 100) : 100}%` }} />
+                    </div>
+                    <p className="font-mono">{r.done >= r.need ? "✅" : "⏳"} {r.done.toLocaleString()} / {r.need.toLocaleString()} {r.unit}</p>
+                  </div>
+                ))}
               </div>
             )}
             {!bonusStatus?.active && bonusStatus?.withdrawLimitUsd != null && (

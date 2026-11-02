@@ -10,6 +10,7 @@ import {
   ChevronLeft, ChevronRight, UserX, UserCheck,
   Shield, RefreshCw, Users, Eye,
 } from "lucide-react";
+import AdminUserTrading from "@/components/admin/AdminUserTrading";
 
 type User = {
   _id: string;
@@ -463,7 +464,7 @@ export default function AdminUsersPage() {
       <Dialog.Root open={!!selectedUser} onOpenChange={(o) => !o && setSelectedUser(null)}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/25 backdrop-blur-sm z-40" />
-          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] max-w-md bg-white rounded-2xl shadow-2xl z-50 overflow-hidden">
+          <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] max-w-5xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl z-50">
             {selectedUser && (
               <>
                 {/* Header */}
@@ -508,6 +509,11 @@ export default function AdminUsersPage() {
                       </span>
                     </div>
                   ))}
+                </div>
+
+                {/* Balance, lots, trade history */}
+                <div className="px-6 pb-6">
+                  <AdminUserTrading key={selectedUser._id} userId={selectedUser._id} />
                 </div>
               </>
             )}
