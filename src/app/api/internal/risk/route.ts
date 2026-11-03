@@ -4,13 +4,16 @@ import { ObjectId } from "mongodb";
 import { getDb } from "@/lib/mongodb";
 import { calcTradePnl } from "@/lib/pnl";
 import { getConversionMids, getServerQuote, type Quote } from "@/lib/quote";
-import { slTpHit, stopOutOrder, type RiskPosition } from "@/lib/risk";
+import { accountStopOutLevel, slTpHit, stopOutOrder, type RiskPosition } from "@/lib/risk";
 import { closeTrade, internalToken } from "@/lib/trading";
 import { enforceCopyLossLimits } from "@/lib/copyTrading";
+import { fillPendingOrders } from "@/lib/pendingOrders";
 
 /**
- * Called by server.js every few seconds. Closes positions whose SL/TP was hit,
- * then runs stop-out on accounts whose margin level fell to STOP_OUT_LEVEL.
+ * Called by server.js every few seconds. Fills pending orders whose price was reached,
+ * closes positions whose SL/TP was hit,
+ * then runs stop-out on accounts whose margin level fell to their stop-out level
+ * (user-chosen, 0–100%, default STOP_OUT_LEVEL).
  */
 export async function POST(req: NextRequest) {
   const expected = internalToken("internal-risk");
@@ -20,14 +23,20 @@ export async function POST(req: NextRequest) {
   }
 
   const db = await getDb();
-  const open = await db.collection("trades").find({ status: "open" }).toArray();
-  if (open.length === 0) return NextResponse.json({ ok: true, closed: [] });
 
-  // One quote per symbol; a symbol without a tradable price is skipped rather than valued at a stale price
+  // One quote per symbol per tick; a symbol without a tradable price is skipped rather than valued at a stale price
   const quotes = new Map<string, Quote | null>();
-  for (const symbol of new Set(open.map((t) => t.symbol as string))) {
-    quotes.set(symbol, await getServerQuote(symbol));
-  }
+  const quoteFor = async (symbol: string) => {
+    if (!quotes.has(symbol)) quotes.set(symbol, await getServerQuote(symbol));
+    return quotes.get(symbol)!;
+  };
+
+  // 0) Pending orders whose price was reached become positions (then get SL/TP + stop-out below)
+  const filled = await fillPendingOrders(db, quoteFor);
+
+  const open = await db.collection("trades").find({ status: "open" }).toArray();
+  if (open.length === 0) return NextResponse.json({ ok: true, filled, closed: [] });
+  for (const symbol of new Set(open.map((t) => t.symbol as string))) await quoteFor(symbol);
 
   const mids = await getConversionMids([...quotes.keys()]);
   const closed: { tradeId: string; reason: string; pnl: number }[] = [];
@@ -66,7 +75,7 @@ export async function POST(req: NextRequest) {
       return { id: t._id.toString(), margin: t.margin ?? 0, pnl: calcTradePnl(t.type, t.symbol, t.openPrice, price, t.volume, mids) };
     });
 
-    for (const id of stopOutOrder(account.balance ?? 0, positions)) {
+    for (const id of stopOutOrder(account.balance ?? 0, positions, accountStopOutLevel(account.stopOutLevel))) {
       const t = trades.find((x) => x._id.toString() === id)!;
       const r = await closeTrade(db, t, quotes.get(t.symbol)!, "stop_out");
       if (r.ok) closed.push({ tradeId: id, reason: "stop_out", pnl: r.pnl });
@@ -78,5 +87,5 @@ export async function POST(req: NextRequest) {
     closed.push({ tradeId: `subscription:${id}`, reason: "copy_max_loss", pnl: 0 });
   }
 
-  return NextResponse.json({ ok: true, closed });
+  return NextResponse.json({ ok: true, filled, closed });
 }

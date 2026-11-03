@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import Link from "next/link";
 import { readUploadResponse, shrinkImage } from "@/lib/upload-client";
+import { STOP_OUT_MAX, STOP_OUT_MIN } from "@/lib/risk";
 import {
   Eye, EyeOff, Settings, Upload, CheckCircle2, Clock, XCircle,
   FileText, Camera, CreditCard, AlertCircle, ChevronRight, X,
@@ -19,6 +20,7 @@ export interface AccountData {
   equity: number;
   freeMargin: number;
   leverage: string;
+  stopOutLevel: number;
   isDemo: boolean;
   status: "active" | "suspended" | "archived";
 }
@@ -43,12 +45,39 @@ const DOC_FIELDS = [
 
 type DocPurpose = typeof DOC_FIELDS[number]["id"];
 
+const STOP_OUT_OPTIONS = Array.from({ length: (STOP_OUT_MAX - STOP_OUT_MIN) / 10 + 1 }, (_, i) => STOP_OUT_MIN + i * 10);
+
 export function AccountsClient({ lang, initialAccounts }: AccountsClientProps) {
   const isth = lang === "th";
   const [accounts, setAccounts] = useState<AccountData[]>(initialAccounts);
   const [activeTab, setActiveTab] = useState<"all" | "live" | "demo">("all");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [stopOutSaving, setStopOutSaving] = useState<string | null>(null);
+  const [stopOutError, setStopOutError] = useState<{ id: string; message: string } | null>(null);
+
+  const updateStopOut = async (accountId: string, level: number) => {
+    const previous = accounts.find((a) => a.id === accountId)?.stopOutLevel;
+    setStopOutError(null);
+    setStopOutSaving(accountId);
+    setAccounts((list) => list.map((a) => (a.id === accountId ? { ...a, stopOutLevel: level } : a)));
+    try {
+      const res = await fetch(`/api/accounts/${accountId}/stop-out`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stopOutLevel: level }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed");
+      }
+    } catch (err) {
+      if (previous != null) setAccounts((list) => list.map((a) => (a.id === accountId ? { ...a, stopOutLevel: previous } : a)));
+      setStopOutError({ id: accountId, message: isth ? "บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง" : (err as Error).message });
+    } finally {
+      setStopOutSaving(null);
+    }
+  };
 
   // Demo account form state
   const [formPlatform, setFormPlatform] = useState<"MetaTrader 5" | "MetaTrader 4">("MetaTrader 5");
@@ -314,6 +343,37 @@ export function AccountsClient({ lang, initialAccounts }: AccountsClientProps) {
                     <span className="text-[11px] font-medium text-slate-400 block leading-tight">{isth ? "เลเวอเรจ" : "Leverage"}</span>
                     <span className="font-bold font-mono text-slate-900 text-sm">{account.leverage}</span>
                   </div>
+                </div>
+                <div className="bg-white rounded-xl px-3 py-2.5 border border-slate-100 shadow-2xs">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="text-[11px] font-bold text-slate-700 block leading-tight">{isth ? "ระดับ Stop Out" : "Stop Out Level"}</span>
+                      <span className="text-[10px] text-slate-400 block leading-snug">
+                        {isth
+                          ? `ปิดออเดอร์อัตโนมัติเมื่อ Margin Level ถึงค่านี้ (${STOP_OUT_MIN}–${STOP_OUT_MAX}%)`
+                          : `Auto-close positions when margin level reaches this (${STOP_OUT_MIN}–${STOP_OUT_MAX}%)`}
+                      </span>
+                    </div>
+                    <select
+                      value={account.stopOutLevel}
+                      disabled={stopOutSaving === account.id}
+                      onChange={(e) => updateStopOut(account.id, Number(e.target.value))}
+                      aria-label={isth ? "ระดับ Stop Out" : "Stop Out Level"}
+                      className="shrink-0 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 font-mono font-bold text-sm text-slate-900 focus:outline-none focus:border-[#c6a87c] cursor-pointer disabled:opacity-50"
+                    >
+                      {(STOP_OUT_OPTIONS.includes(account.stopOutLevel) ? STOP_OUT_OPTIONS : [...STOP_OUT_OPTIONS, account.stopOutLevel].sort((a, b) => a - b)).map((v) => (
+                        <option key={v} value={v}>{v}%</option>
+                      ))}
+                    </select>
+                  </div>
+                  {account.stopOutLevel < 50 && (
+                    <p className="text-[10px] text-amber-600 mt-1 leading-snug">
+                      {isth
+                        ? "ต่ำกว่า 50%: ออเดอร์จะถูกปิดช้าลง ถ้าราคากระชาก ทุนอาจหมดก่อนระบบปิดทัน"
+                        : "Below 50%: positions close later; in a fast market your equity may run out before they are closed"}
+                    </p>
+                  )}
+                  {stopOutError?.id === account.id && <p className="text-[10px] text-rose-500 mt-1">{stopOutError.message}</p>}
                 </div>
                 <div className="pt-2 flex items-center gap-2">
                   <Link href={`/${lang}/dashboard/funds?account=${account.accountNumber}`} className="flex-1 bg-gradient-to-r from-[#c6a87c] via-[#b89766] to-[#997a49] hover:brightness-110 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-2xs text-center">

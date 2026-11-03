@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { getDb } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
+import { accountStopOutLevel } from "@/lib/risk";
 
 export async function GET() {
   try {
@@ -30,6 +31,7 @@ export async function GET() {
       equity: Number(a.equity) || Number(a.balance) || 0,
       freeMargin: Number(a.freeMargin) || Number(a.balance) || 0,
       leverage: a.leverage || "1:500",
+      stopOutLevel: accountStopOutLevel(a.stopOutLevel),
       isDemo: Boolean(a.isDemo),
       status: a.status || "active",
       createdAt: a.createdAt,

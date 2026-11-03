@@ -4,6 +4,7 @@ import { getDb } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 import { hasLocale } from "@/dictionaries";
 import { AccountsClient, AccountData } from "@/components/dashboard/AccountsClient";
+import { accountStopOutLevel } from "@/lib/risk";
 
 export default async function TradingAccountsPage(props: { params: Promise<{ lang: string }> }) {
   const { lang } = await props.params;
@@ -32,6 +33,7 @@ export default async function TradingAccountsPage(props: { params: Promise<{ lan
     equity: Number(a.equity) || Number(a.balance) || 0,
     freeMargin: Number(a.freeMargin) || Number(a.balance) || 0,
     leverage: a.leverage || "1:500",
+    stopOutLevel: accountStopOutLevel(a.stopOutLevel),
     isDemo: Boolean(a.isDemo),
     status: (a.status || "active") as "active" | "suspended" | "archived",
   }));

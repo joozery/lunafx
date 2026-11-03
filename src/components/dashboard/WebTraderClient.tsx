@@ -6,6 +6,7 @@ import { io } from "socket.io-client";
 import { calcTradePnl } from "@/lib/pnl";
 import { TradingViewChart } from "@/components/trading/TradingViewChart";
 import { quoteStatus, type MarketQuote } from "@/lib/market-data";
+import { pendingKind, slTpValidForEntry, type PendingKind } from "@/lib/risk";
 import {
   TrendingUp, TrendingDown, ChevronDown,
   Activity, AlertCircle, ArrowLeft,
@@ -66,6 +67,17 @@ interface Trade {
   closeReason?: "manual" | "sl" | "tp" | "stop_out" | null;
 }
 
+interface PendingOrder {
+  id: string; accountId: string; symbol: string;
+  side: "buy" | "sell"; kind: PendingKind;
+  entryPrice: number; volume: number;
+  sl: number | null; tp: number | null; createdAt: string;
+}
+
+const KIND_LABEL: Record<PendingKind, string> = {
+  buy_limit: "BUY LIMIT", buy_stop: "BUY STOP", sell_limit: "SELL LIMIT", sell_stop: "SELL STOP",
+};
+
 const CLOSE_REASON_LABEL: Record<string, string> = { sl: "SL", tp: "TP", stop_out: "Stop Out" };
 
 type PriceEntry = MarketQuote;
@@ -109,6 +121,8 @@ export function WebTraderClient({ lang }: { lang: string }) {
   const [volume, setVolume] = useState("0.01");
   const [sl, setSl] = useState("");
   const [tp, setTp] = useState("");
+  const [execMode, setExecMode] = useState<"market" | "pending">("market");
+  const [entryPrice, setEntryPrice] = useState("");
   const [orderSuccess, setOrderSuccess] = useState("");
   const [placing, setPlacing] = useState(false);
 
@@ -123,8 +137,10 @@ export function WebTraderClient({ lang }: { lang: string }) {
   /* ── Positions state ── */
   const [openPositions, setOpenPositions] = useState<Trade[]>([]);
   const [tradeHistory, setTradeHistory] = useState<Trade[]>([]);
-  const [activeTab, setActiveTab] = useState<"positions" | "history">("positions");
+  const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
+  const [activeTab, setActiveTab] = useState<"positions" | "pending" | "history">("positions");
   const [closing, setClosing] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState<string | null>(null);
 
   /* ── Fetch accounts (also called after every open/close so balance stays in sync) ── */
   const fetchAccounts = useCallback(async () => {
@@ -163,13 +179,15 @@ export function WebTraderClient({ lang }: { lang: string }) {
   const accountId = selectedAccount?.id;
   const fetchPositions = useCallback(async () => {
     if (!accountId) return;
-    const [openRes, histRes] = await Promise.all([
+    const [openRes, histRes, pendRes] = await Promise.all([
       fetch(`/api/trades?accountId=${accountId}&status=open`),
       fetch(`/api/trades?accountId=${accountId}&status=closed`),
+      fetch(`/api/orders?accountId=${accountId}`),
     ]);
-    const [od, hd] = await Promise.all([openRes.json(), histRes.json()]);
+    const [od, hd, pd] = await Promise.all([openRes.json(), histRes.json(), pendRes.json()]);
     setOpenPositions(od.trades ?? []);
     setTradeHistory(hd.trades ?? []);
+    setPendingOrders(pd.orders ?? []);
   }, [accountId]);
 
   useEffect(() => {
@@ -177,13 +195,15 @@ export function WebTraderClient({ lang }: { lang: string }) {
     const controller = new AbortController();
     async function loadPositions() {
       try {
-        const [open, history] = await Promise.all([
+        const [open, history, pending] = await Promise.all([
           fetch(`/api/trades?accountId=${accountId}&status=open`, { signal: controller.signal }).then((r) => r.json()),
           fetch(`/api/trades?accountId=${accountId}&status=closed`, { signal: controller.signal }).then((r) => r.json()),
+          fetch(`/api/orders?accountId=${accountId}`, { signal: controller.signal }).then((r) => r.json()),
         ]);
         if (!controller.signal.aborted) {
           setOpenPositions(open.trades ?? []);
           setTradeHistory(history.trades ?? []);
+          setPendingOrders(pending.orders ?? []);
         }
       } catch {
         // Switching accounts aborts the previous request.
@@ -192,6 +212,14 @@ export function WebTraderClient({ lang }: { lang: string }) {
     void loadPositions();
     return () => controller.abort();
   }, [accountId]);
+
+  /* ── Pending orders fill on the server; refresh while any are waiting so fills show up ── */
+  const hasPending = pendingOrders.length > 0;
+  useEffect(() => {
+    if (!hasPending) return;
+    const t = setInterval(() => { void fetchPositions(); void fetchAccounts(); }, 5000);
+    return () => clearInterval(t);
+  }, [hasPending, fetchPositions, fetchAccounts]);
 
   /* ── Chart helpers ── */
   const handleSymbolChange = (sym: typeof SYMBOLS[0]) => {
@@ -211,6 +239,11 @@ export function WebTraderClient({ lang }: { lang: string }) {
     if (!sp) {
       setOrderSuccess(isth ? "ยังไม่มีราคา — กรุณารอสักครู่" : "No price yet — please wait");
       setTimeout(() => setOrderSuccess(""), 3000);
+      return;
+    }
+
+    if (execMode === "pending") {
+      await placePending(vol);
       return;
     }
 
@@ -245,6 +278,61 @@ export function WebTraderClient({ lang }: { lang: string }) {
     }
   };
 
+  /* ── Place pending order (Buy/Sell Limit or Stop at a chosen price) ── */
+  const placePending = async (vol: number) => {
+    if (!selectedAccount) return;
+    const entry = parseFloat(entryPrice);
+    const flash = (msg: string) => { setOrderSuccess(msg); setTimeout(() => setOrderSuccess(""), 5000); };
+    if (!Number.isFinite(entry) || entry <= 0) return flash(isth ? "กรุณาใส่ราคาที่ต้องการเข้าออเดอร์" : "Enter the entry price");
+    const slN = sl ? parseFloat(sl) : null;
+    const tpN = tp ? parseFloat(tp) : null;
+    if (!slTpValidForEntry(orderType, slN, tpN, entry)) {
+      return flash(orderType === "buy"
+        ? (isth ? "คำสั่ง Buy: SL ต้องต่ำกว่าราคาเข้า และ TP ต้องสูงกว่าราคาเข้า" : "Buy: SL must be below and TP above the entry price")
+        : (isth ? "คำสั่ง Sell: SL ต้องสูงกว่าราคาเข้า และ TP ต้องต่ำกว่าราคาเข้า" : "Sell: SL must be above and TP below the entry price"));
+    }
+
+    setPlacing(true);
+    try {
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountId: selectedAccount.id, symbol: selectedSymbol.id, side: orderType,
+          volume: vol, entryPrice: entry, sl: slN, tp: tpN,
+        }),
+      });
+      const d = await res.json();
+      if (d.ok) {
+        flash(`${orderType === "buy" ? "▲" : "▼"} ${isth ? "ตั้ง" : "Placed"} ${KIND_LABEL[d.order.kind as PendingKind]} ${vol} lot ${selectedSymbol.label} @ ${entry.toFixed(selectedSymbol.digits)}`);
+        setSl(""); setTp(""); setEntryPrice("");
+        setActiveTab("pending");
+        await fetchPositions();
+      } else {
+        flash(d.error ?? (isth ? "ตั้งคำสั่งไม่สำเร็จ" : "Order failed"));
+      }
+    } finally {
+      setPlacing(false);
+    }
+  };
+
+  /* ── Cancel pending order ── */
+  const handleCancel = async (order: PendingOrder) => {
+    if (cancelling) return;
+    setCancelling(order.id);
+    try {
+      const res = await fetch(`/api/orders?id=${order.id}`, { method: "DELETE" });
+      const d = await res.json();
+      setOrderSuccess(d.ok
+        ? `▼ ${isth ? "ยกเลิก" : "Cancelled"} ${KIND_LABEL[order.kind]} ${symOf(order.symbol).label}`
+        : d.error ?? (isth ? "ยกเลิกไม่สำเร็จ" : "Cancel failed"));
+      setTimeout(() => setOrderSuccess(""), 5000);
+      await fetchPositions();
+    } finally {
+      setCancelling(null);
+    }
+  };
+
   /* ── Close position ── */
   const handleClose = async (pos: Trade) => {
     if (closing) return;
@@ -276,6 +364,10 @@ export function WebTraderClient({ lang }: { lang: string }) {
 
   const selPrice = prices[selectedSymbol.id];
   const hasPrices = !!selPrice;
+  const entryN = parseFloat(entryPrice);
+  const formKind = execMode === "pending" && selPrice && Number.isFinite(entryN) && entryN > 0
+    ? pendingKind(orderType, entryN, selPrice)
+    : null;
   const status = quoteStatus(selPrice, connected, now);
   const executable = status === "live" || status === "polled";
   const statusLabels = {
@@ -426,7 +518,7 @@ export function WebTraderClient({ lang }: { lang: string }) {
           {/* ── BOTTOM: Positions / History ── */}
           <div className={`${mobileTab === "positions" ? "flex" : "hidden"} flex-1 min-h-0 lg:flex lg:flex-none lg:h-44 border-t border-slate-800 bg-[#0f172a] flex-col shrink-0`}>
             <div className="flex items-center gap-1 px-3 pt-2 border-b border-slate-800 shrink-0">
-              {(["positions", "history"] as const).map((tab) => (
+              {(["positions", "pending", "history"] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -438,7 +530,14 @@ export function WebTraderClient({ lang }: { lang: string }) {
                 >
                   {tab === "positions"
                     ? (isth ? "สถานะเปิดอยู่" : "Open Positions")
-                    : (isth ? "ประวัติการเทรด" : "Trade History")}
+                    : tab === "pending"
+                      ? (isth ? "คำสั่งรอ" : "Pending")
+                      : (isth ? "ประวัติการเทรด" : "Trade History")}
+                  {tab === "pending" && pendingOrders.length > 0 && (
+                    <span className="ml-1.5 bg-slate-600 text-white text-[9px] px-1.5 py-0.5 rounded-full">
+                      {pendingOrders.length}
+                    </span>
+                  )}
                   {tab === "positions" && openPositions.length > 0 && (
                     <span className="ml-1.5 bg-[#c6a87c] text-white text-[9px] px-1.5 py-0.5 rounded-full">
                       {openPositions.length}
@@ -449,8 +548,77 @@ export function WebTraderClient({ lang }: { lang: string }) {
             </div>
 
             <div className="flex-1 overflow-auto">
-              <div className="lg:hidden p-3 space-y-3">
-                {(activeTab === "positions" ? openPositions : tradeHistory).map((trade) => {
+              {activeTab === "pending" && (
+                pendingOrders.length === 0 ? (
+                  <div className="flex items-center justify-center h-full gap-2 text-slate-600 text-xs p-6">
+                    <Activity className="w-4 h-4" />
+                    <span>{isth ? "ยังไม่มีคำสั่งรอ" : "No pending orders"}</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="lg:hidden p-3 space-y-3">
+                      {pendingOrders.map((o) => {
+                        const sym = symOf(o.symbol);
+                        const p = prices[o.symbol];
+                        const market = p ? (o.side === "buy" ? p.ask : p.bid) : undefined;
+                        return (
+                          <article key={o.id} className="rounded-2xl border border-slate-700/70 bg-slate-800/50 p-4">
+                            <div className="flex items-center justify-between gap-2">
+                              <div><p className="font-bold text-sm">{sym.label}</p><p className={`text-xs mt-1 ${o.side === "buy" ? "text-emerald-400" : "text-rose-400"}`}>{KIND_LABEL[o.kind]} · {o.volume} lot</p></div>
+                              <p className="font-mono font-bold text-slate-200">@ {fmtN(o.entryPrice, sym.digits)}</p>
+                            </div>
+                            <div className="grid grid-cols-3 gap-3 my-3 text-xs">
+                              <div><p className="text-slate-500">SL</p><p className="font-mono mt-1 text-rose-400">{o.sl != null ? fmtN(o.sl, sym.digits) : "—"}</p></div>
+                              <div><p className="text-slate-500">TP</p><p className="font-mono mt-1 text-emerald-400">{o.tp != null ? fmtN(o.tp, sym.digits) : "—"}</p></div>
+                              <div className="text-right"><p className="text-slate-500">{isth ? "ราคาตอนนี้" : "Market"}</p><p className="font-mono mt-1">{market != null ? fmtN(market, sym.digits) : "—"}</p></div>
+                            </div>
+                            <button onClick={() => handleCancel(o)} disabled={cancelling !== null} className="min-h-11 w-full rounded-xl bg-slate-700 text-sm font-bold text-slate-200 active:bg-rose-900 disabled:opacity-40">{cancelling === o.id ? (isth ? "กำลังยกเลิก…" : "Cancelling…") : (isth ? "ยกเลิกคำสั่ง" : "Cancel order")}</button>
+                          </article>
+                        );
+                      })}
+                    </div>
+                    <table className="hidden lg:table w-full text-xs">
+                      <thead className="sticky top-0 bg-[#0f172a]">
+                        <tr className="border-b border-slate-800 text-[10px] uppercase tracking-wider text-slate-600">
+                          {["Symbol", "Type", "Volume", "Price", "SL", "TP", "Market", ""].map((h, i) => (
+                            <th key={i} className="px-3 py-1.5 text-left font-semibold whitespace-nowrap">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pendingOrders.map((o) => {
+                          const sym = symOf(o.symbol);
+                          const p = prices[o.symbol];
+                          const market = p ? (o.side === "buy" ? p.ask : p.bid) : undefined;
+                          return (
+                            <tr key={o.id} className="border-b border-slate-800/40 hover:bg-slate-800/30">
+                              <td className="px-3 py-1.5 font-bold text-slate-200 whitespace-nowrap">{o.symbol}</td>
+                              <td className={`px-3 py-1.5 font-bold whitespace-nowrap ${o.side === "buy" ? "text-emerald-400" : "text-rose-400"}`}>{KIND_LABEL[o.kind]}</td>
+                              <td className="px-3 py-1.5 font-mono text-slate-400">{o.volume}</td>
+                              <td className="px-3 py-1.5 font-mono text-slate-200">{fmtN(o.entryPrice, sym.digits)}</td>
+                              <td className="px-3 py-1.5 font-mono text-rose-400/80">{o.sl != null ? fmtN(o.sl, sym.digits) : "—"}</td>
+                              <td className="px-3 py-1.5 font-mono text-emerald-400/80">{o.tp != null ? fmtN(o.tp, sym.digits) : "—"}</td>
+                              <td className="px-3 py-1.5 font-mono text-slate-400">{market != null ? fmtN(market, sym.digits) : <span className="text-slate-700">···</span>}</td>
+                              <td className="px-3 py-1.5">
+                                <button
+                                  onClick={() => handleCancel(o)}
+                                  disabled={cancelling === o.id}
+                                  className="px-2 py-0.5 text-[10px] font-bold bg-slate-700 hover:bg-rose-900/60 hover:text-rose-300 text-slate-400 rounded transition-colors disabled:opacity-40"
+                                >
+                                  {cancelling === o.id ? "···" : "Cancel"}
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </>
+                )
+              )}
+
+              <div className={`${activeTab === "pending" ? "hidden" : ""} lg:hidden p-3 space-y-3`}>
+                {(activeTab === "positions" ? openPositions : activeTab === "history" ? tradeHistory : []).map((trade) => {
                   const isOpen = activeTab === "positions";
                   const sym = symOf(trade.symbol);
                   const current = isOpen ? closingPrice(trade, prices) : trade.closePrice;
@@ -662,6 +830,20 @@ export function WebTraderClient({ lang }: { lang: string }) {
           <div className="p-3 space-y-3 flex-1">
             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">ส่งคำสั่ง</p>
 
+            {/* Market / Pending */}
+            <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-800 p-1">
+              {(["market", "pending"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setExecMode(m)}
+                  aria-pressed={execMode === m}
+                  className={`py-1.5 rounded-md text-[11px] font-bold transition-all ${execMode === m ? "bg-slate-600 text-white" : "text-slate-500 hover:text-slate-300"}`}
+                >
+                  {m === "market" ? (isth ? "ทันที (Market)" : "Market") : (isth ? "ตั้งราคา (Pending)" : "Pending")}
+                </button>
+              ))}
+            </div>
+
             {/* BUY / SELL toggle */}
             <div className="grid grid-cols-2 gap-1.5">
               {(["buy", "sell"] as const).map((side) => (
@@ -718,6 +900,34 @@ export function WebTraderClient({ lang }: { lang: string }) {
               </div>
             </div>
 
+            {/* Entry price (pending only) */}
+            {execMode === "pending" && (
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] text-slate-500 font-bold">{isth ? "ราคาที่ต้องการเข้า" : "Entry Price"}</label>
+                  {selPrice && (
+                    <button
+                      onClick={() => setEntryPrice((orderType === "buy" ? selPrice.ask : selPrice.bid).toFixed(selectedSymbol.digits))}
+                      className="text-[10px] font-bold text-[#c6a87c] hover:text-[#e6cda3]"
+                    >
+                      {isth ? "ใช้ราคาตอนนี้" : "Use market"}
+                    </button>
+                  )}
+                </div>
+                <input
+                  aria-label={isth ? "ราคาที่ต้องการเข้า" : "Entry Price"} inputMode="decimal"
+                  type="number" step={selectedSymbol.pip} value={entryPrice} onChange={(e) => setEntryPrice(e.target.value)}
+                  placeholder={selPrice ? (orderType === "buy" ? selPrice.ask : selPrice.bid).toFixed(selectedSymbol.digits) : "0.00"}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-xs font-mono text-slate-200 placeholder:text-slate-600 outline-none focus:border-[#c6a87c]"
+                />
+                <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+                  {formKind
+                    ? `${KIND_LABEL[formKind]} — ${isth ? "เปิดออเดอร์เมื่อราคา" : "Fills when"} ${orderType === "buy" ? "Ask" : "Bid"} ${formKind.endsWith("limit") === (orderType === "buy") ? (isth ? "ลงมาถึง" : "falls to") : (isth ? "ขึ้นไปถึง" : "rises to")} ${entryN.toFixed(selectedSymbol.digits)}`
+                    : (isth ? "ใส่ราคาต่ำหรือสูงกว่าราคาตลาด ระบบจะเปิดออเดอร์ให้เมื่อราคาวิ่งมาถึง" : "Set a price away from the market; the order opens when price reaches it")}
+                </p>
+              </div>
+            )}
+
             {/* SL / TP */}
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -743,14 +953,19 @@ export function WebTraderClient({ lang }: { lang: string }) {
             {/* Submit */}
             <button
               onClick={handleOrder}
-              disabled={!selectedAccount || placing || !executable}
+              disabled={!selectedAccount || placing || !executable || (execMode === "pending" && !formKind)}
               className={`w-full py-3 rounded-xl text-xs font-black transition-all shadow-lg disabled:opacity-40 disabled:cursor-not-allowed ${
                 orderType === "buy"
                   ? "bg-gradient-to-r from-emerald-500 to-emerald-600 hover:brightness-110 text-white shadow-emerald-500/20"
                   : "bg-gradient-to-r from-rose-500 to-rose-600 hover:brightness-110 text-white shadow-rose-500/20"
               }`}
             >
-              {placing ? "กำลังส่ง..." : (
+              {placing ? "กำลังส่ง..." : execMode === "pending" ? (
+                <span>
+                  {formKind ? KIND_LABEL[formKind] : (orderType === "buy" ? "▲ BUY" : "▼ SELL")} {volume} lot
+                  {formKind && <span className="opacity-80 ml-1 text-[10px]">@ {entryN.toFixed(selectedSymbol.digits)}</span>}
+                </span>
+              ) : (
                 <span>
                   {orderType === "buy" ? "▲ BUY" : "▼ SELL"} {volume} lot
                   {hasPrices && selPrice && (

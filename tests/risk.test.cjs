@@ -95,3 +95,57 @@ test('performance fee uses a high-water mark', () => {
   // rounds down to the cent
   assert.equal(calcPerformanceFee(33.33, 0, 15).fee, 4.99);
 });
+
+const { accountStopOutLevel } = loadTs('src/lib/risk.ts');
+
+test('account stop-out level defaults to 50 and is clamped to 0–100', () => {
+  assert.equal(accountStopOutLevel(undefined), 50);
+  assert.equal(accountStopOutLevel(null), 50);
+  assert.equal(accountStopOutLevel('abc'), 50);
+  assert.equal(accountStopOutLevel(70), 70);
+  assert.equal(accountStopOutLevel(0), 0);
+  assert.equal(accountStopOutLevel(20), 20);
+  assert.equal(accountStopOutLevel(-10), 0);
+  assert.equal(accountStopOutLevel(150), 100);
+});
+
+test('higher stop-out level closes earlier', () => {
+  const positions = [{ id: 'a', margin: 100, pnl: -930 }]; // equity 70 → 70%
+  assert.deepEqual([...stopOutOrder(1000, positions, 50)], []);
+  assert.deepEqual([...stopOutOrder(1000, positions, 80)], ['a']);
+});
+
+const { pendingKind, pendingTriggered, slTpValidForEntry } = loadTs('src/lib/risk.ts');
+const Q = { bid: 1.1000, ask: 1.1002 };
+
+test('pending kind is limit below/above the market and stop on the other side', () => {
+  assert.equal(pendingKind('buy', 1.0950, Q), 'buy_limit');
+  assert.equal(pendingKind('buy', 1.1050, Q), 'buy_stop');
+  assert.equal(pendingKind('sell', 1.1050, Q), 'sell_limit');
+  assert.equal(pendingKind('sell', 1.0950, Q), 'sell_stop');
+  assert.equal(pendingKind('buy', 1.1002, Q), null); // at market = market order
+  assert.equal(pendingKind('sell', 1.1000, Q), null);
+});
+
+test('buy orders trigger on ask, sell orders on bid', () => {
+  assert.equal(pendingTriggered('buy_limit', 1.0950, { bid: 1.0949, ask: 1.0951 }), false);
+  assert.equal(pendingTriggered('buy_limit', 1.0950, { bid: 1.0948, ask: 1.0950 }), true);
+  assert.equal(pendingTriggered('buy_stop', 1.1050, { bid: 1.1049, ask: 1.1051 }), true);
+  assert.equal(pendingTriggered('sell_limit', 1.1050, { bid: 1.1049, ask: 1.1051 }), false);
+  assert.equal(pendingTriggered('sell_limit', 1.1050, { bid: 1.1050, ask: 1.1052 }), true);
+  assert.equal(pendingTriggered('sell_stop', 1.0950, { bid: 1.0950, ask: 1.0952 }), true);
+});
+
+test('SL/TP must be on the right side of the entry price', () => {
+  assert.equal(slTpValidForEntry('buy', 1.09, 1.11, 1.10), true);
+  assert.equal(slTpValidForEntry('buy', null, 1.11, 1.10), true);
+  assert.equal(slTpValidForEntry('buy', 1.11, null, 1.10), false);
+  assert.equal(slTpValidForEntry('buy', null, 1.09, 1.10), false);
+  assert.equal(slTpValidForEntry('sell', 1.11, 1.09, 1.10), true);
+  assert.equal(slTpValidForEntry('sell', 1.09, null, 1.10), false);
+});
+
+test('stop-out level 0 only closes once equity is gone', () => {
+  assert.deepEqual([...stopOutOrder(1000, [{ id: 'a', margin: 100, pnl: -990 }], 0)], []); // equity 10
+  assert.deepEqual([...stopOutOrder(1000, [{ id: 'a', margin: 100, pnl: -1000 }], 0)], ['a']); // equity 0
+});

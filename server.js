@@ -495,7 +495,7 @@ function startRiskLoop() {
     console.log(`> Risk engine: OFF${RISK_TOKEN ? ' (set RISK_ENGINE=on to enable)' : ' (SESSION_SECRET missing)'}`);
     return;
   }
-  console.log(`> Risk engine: ON (SL/TP + stop-out every ${RISK_INTERVAL_MS / 1000}s) + copy-trading fees hourly`);
+  console.log(`> Risk engine: ON (pending orders + SL/TP + stop-out every ${RISK_INTERVAL_MS / 1000}s) + copy-trading fees hourly`);
   startCopyFeeLoop();
 
   let running = false;
@@ -509,7 +509,8 @@ function startRiskLoop() {
         signal: AbortSignal.timeout(15_000),
       });
       if (res.ok) {
-        const { closed } = await res.json();
+        const { filled, closed } = await res.json();
+        for (const f of filled ?? []) console.log(`[risk] pending ${f.orderId} ${f.result}${f.tradeId ? ` → ${f.tradeId}` : ''}${f.reason ? ` (${f.reason})` : ''}`);
         for (const c of closed ?? []) console.log(`[risk] closed ${c.tradeId} (${c.reason}) pnl=${c.pnl}`);
       } else {
         console.warn(`[risk] check failed: HTTP ${res.status}`);
