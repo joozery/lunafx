@@ -28,6 +28,9 @@ type Txn = {
   bankName?: string;
   bankAccountNumber?: string;
   bankAccountName?: string;
+  /* withdrawals: bonus status (live for pending; at the time of the attempt for blocked) */
+  bonusStatus?: BonusStatus | null;
+  blockReason?: string;
   /* slip2go verification */
   slip2go?: {
     status: string;
@@ -50,10 +53,54 @@ type Txn = {
   };
 };
 
+type BonusStatus = {
+  hasBonus: boolean;
+  active: {
+    bonusUsd: number;
+    requiredLots: number; tradedLots: number; remainingLots: number;
+    requiredPips: number; tradedPips: number; remainingPips: number;
+  } | null;
+  withdrawLimitUsd: number | null;
+};
+
+const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** Bonus verdict for a withdrawal. Pending: live, after this request is counted. Blocked: as it was at the attempt. */
+function BonusBadge({ b, blocked = false, detailed = false }: { b: BonusStatus | null | undefined; blocked?: boolean; detailed?: boolean }) {
+  if (!b) return null;
+  if (!b.hasBonus) return <span className="inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">ไม่มีโบนัส</span>;
+  if (b.active) {
+    const a = b.active;
+    const missing = [
+      a.remainingLots > 0 ? `${a.remainingLots} lots` : "",
+      a.remainingPips > 0 ? `${a.remainingPips.toLocaleString()} pips` : "",
+    ].filter(Boolean).join(" / ");
+    return (
+      <div className="space-y-0.5">
+        <span className="inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">⛔ โบนัสยังไม่ครบ · ถอนได้ $0</span>
+        <p className="text-[10px] text-red-600">ขาดอีก {missing}</p>
+        {detailed && (
+          <p className="text-[10px] text-gray-500">
+            โบนัส {usd(a.bonusUsd)} · เทรดแล้ว {a.tradedLots}/{a.requiredLots} lots
+            {a.requiredPips > 0 ? ` · ${a.tradedPips.toLocaleString()}/${a.requiredPips.toLocaleString()} pips` : ""}
+          </p>
+        )}
+      </div>
+    );
+  }
+  const limit = b.withdrawLimitUsd;
+  return (
+    <span className="inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+      ✅ โบนัสครบ · {limit === null ? "ไม่จำกัดยอดถอน" : `${blocked ? "ถอนได้ตอนนั้น" : "ถอนได้อีก"} ${usd(limit)}`}
+    </span>
+  );
+}
+
 const STATUS_MAP: Record<string, { cls: string; label: string }> = {
   pending:   { cls: "bg-amber-50 text-amber-700 border border-amber-200",   label: "รอตรวจสอบ" },
   completed: { cls: "bg-emerald-50 text-emerald-700 border border-emerald-200", label: "อนุมัติแล้ว" },
   failed:    { cls: "bg-red-50 text-red-700 border border-red-200",         label: "ไม่อนุมัติ" },
+  blocked:   { cls: "bg-gray-100 text-gray-700 border border-gray-300",     label: "⛔ ติดเงื่อนไขโบนัส" },
 };
 
 const SLIP2GO_BADGE: Record<string, { cls: string; label: string }> = {
@@ -170,7 +217,7 @@ export default function AdminTransactionsPage() {
           },
           {
             value: statusFilter, onChange: setStatusFilter, placeholder: "สถานะทั้งหมด",
-            options: [["", "สถานะทั้งหมด"], ["pending", "รอตรวจสอบ"], ["completed", "อนุมัติแล้ว"], ["failed", "ไม่อนุมัติ"]],
+            options: [["", "สถานะทั้งหมด"], ["pending", "รอตรวจสอบ"], ["completed", "อนุมัติแล้ว"], ["failed", "ไม่อนุมัติ"], ["blocked", "ถอนไม่ผ่านเงื่อนไขโบนัส"]],
           },
         ].map(({ value, onChange, placeholder, options }) => (
           <Select.Root key={placeholder} value={value} onValueChange={onChange}>
@@ -227,6 +274,8 @@ export default function AdminTransactionsPage() {
                     {t.amountThb ? <p className="text-xs font-semibold text-gray-500">${Number(t.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p> : null}
                   </div>
                 </div>
+                {t.bonusStatus !== undefined && <BonusBadge b={t.bonusStatus} blocked={t.status === "blocked"} />}
+                {t.blockReason && <p className="text-[11px] text-gray-500">{t.blockReason}</p>}
                 {(t.slipUrl || t.slip2go?.checked) && (
                   <div className="flex items-center gap-2 flex-wrap">
                     {t.slipUrl && (
@@ -261,7 +310,7 @@ export default function AdminTransactionsPage() {
           <table className="w-full text-sm">
             <thead className="bg-[#faf8f5] border-b border-[#e8d5b7]/50">
               <tr>
-                {["ผู้ใช้", "ประเภท", "บัญชีเทรด", "จำนวน (THB)", "จำนวน (USD)", "สลิป", "สถานะ", "วันที่", ""].map((h) => (
+                {["ผู้ใช้", "ประเภท", "บัญชีเทรด", "จำนวน (THB)", "จำนวน (USD)", "สลิป / โบนัส", "สถานะ", "วันที่", ""].map((h) => (
                   <th key={h} className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -312,7 +361,8 @@ export default function AdminTransactionsPage() {
                             className="inline-flex items-center gap-1 text-[11px] font-bold text-[#b89766] hover:text-[#997a49] transition-colors">
                             <ImageIcon className="w-3.5 h-3.5" /> ดูสลิป
                           </a>
-                        ) : <span className="text-gray-300 text-xs">-</span>}
+                        ) : t.bonusStatus === undefined ? <span className="text-gray-300 text-xs">-</span> : null}
+                        {t.bonusStatus !== undefined && <BonusBadge b={t.bonusStatus} blocked={t.status === "blocked"} />}
                         {t.slip2go?.checked && (
                           <Slip2GoBadge status={t.slip2go.status} code={t.slip2go.code} />
                         )}
@@ -428,6 +478,17 @@ export default function AdminTransactionsPage() {
                   ))}
                 </div>
 
+                {/* Bonus check for withdrawals */}
+                {selected.type === "withdrawal" && selected.bonusStatus !== undefined && (
+                  <div className="bg-amber-50/60 border border-amber-100 rounded-xl p-4 space-y-2">
+                    <p className="text-xs font-bold text-amber-800 uppercase tracking-wider">
+                      เงื่อนไขโบนัส {selected.status === "blocked" ? "(ตอนที่ลูกค้ากดถอน)" : "(ตอนนี้ หลังนับคำขอนี้แล้ว)"}
+                    </p>
+                    {selected.bonusStatus ? <BonusBadge b={selected.bonusStatus} blocked={selected.status === "blocked"} detailed /> : <p className="text-xs text-gray-500">ไม่พบบัญชีเทรด</p>}
+                    {selected.blockReason && <p className="text-xs text-gray-700">ข้อความที่ลูกค้าเห็น: {selected.blockReason}</p>}
+                  </div>
+                )}
+
                 {/* Withdrawal bank details */}
                 {selected.type === "withdrawal" && (selected.bankName || selected.bankAccountNumber) && (
                   <div className="bg-rose-50 border border-rose-100 rounded-xl p-4 space-y-2.5">
@@ -502,6 +563,12 @@ export default function AdminTransactionsPage() {
               <div className="bg-rose-50 border border-rose-200 rounded-xl px-4 py-3 my-3 text-sm font-bold text-rose-700 space-y-0.5">
                 <p>${Number(selected.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })} → {selected.bankName}</p>
                 <p className="font-mono text-xs">{selected.bankAccountNumber} · {selected.bankAccountName}</p>
+              </div>
+            )}
+            {selected && confirmAction?.status === "completed" && selected.type === "withdrawal" && selected.bonusStatus?.active && (
+              <div className="bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 my-3 text-xs text-amber-800 space-y-1">
+                <p className="font-bold">⚠ บัญชีนี้ยังทำเงื่อนไขโบนัสไม่ครบ (เช่น ได้โบนัสใหม่หลังส่งคำขอนี้)</p>
+                <BonusBadge b={selected.bonusStatus} detailed />
               </div>
             )}
             <div className="flex gap-3 justify-end mt-5">

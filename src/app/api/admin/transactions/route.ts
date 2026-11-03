@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { grantDepositBonus } from "@/lib/bonus";
+import { bonusWithdrawSummary, grantDepositBonus, WITHDRAW_ATTEMPTS, type BonusWithdrawSummary } from "@/lib/bonus";
 import { recordReferralCommission } from "@/lib/referral";
 import { requireAdmin } from "@/lib/adminAuth";
 import { getDb } from "@/lib/mongodb";
-import { ObjectId } from "mongodb";
+import { ObjectId, type Db } from "mongodb";
 
 export async function GET(req: NextRequest) {
   if (!await requireAdmin()) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -15,6 +15,10 @@ export async function GET(req: NextRequest) {
   const limit = 20;
 
   const db = await getDb();
+
+  // Withdrawals the bonus rules refused live in their own collection (they never became transactions)
+  if (status === "blocked") return blockedAttempts(db, page, limit, type);
+
   const filter: Record<string, unknown> = {};
   if (type) filter.type = type;
   if (status) filter.status = status;
@@ -36,15 +40,59 @@ export async function GET(req: NextRequest) {
     .toArray();
   const userMap = Object.fromEntries(users.map((u) => [u._id.toString(), u]));
 
+  // Pending withdrawals: the account's bonus status right now, so admins see how much may be withdrawn
+  const bonusByAccount = new Map<string, BonusWithdrawSummary>();
+  const pendingAccounts = [...new Set(
+    transactions.filter((t) => t.type === "withdrawal" && t.status === "pending" && t.accountNumber).map((t) => t.accountNumber as string),
+  )];
+  await Promise.all(pendingAccounts.map(async (accountNumber) => {
+    const account = await db.collection("accounts").findOne({ accountNumber, isDemo: { $ne: true } });
+    if (account) bonusByAccount.set(accountNumber, await bonusWithdrawSummary(db, account).catch(() => ({ hasBonus: false, active: null, withdrawLimitUsd: null })));
+  }));
+
   return NextResponse.json({
     transactions: transactions.map((t) => ({
       ...t,
       _id: t._id.toString(),
       userId: t.userId.toString(),
       user: userMap[t.userId.toString()] ?? null,
+      bonusStatus: t.type === "withdrawal" && t.status === "pending" ? bonusByAccount.get(t.accountNumber) ?? null : undefined,
     })),
     total,
     pages: Math.ceil(total / limit),
+    page,
+  });
+}
+
+async function blockedAttempts(db: Db, page: number, limit: number, type: string) {
+  if (type && type !== "withdrawal") return NextResponse.json({ transactions: [], total: 0, pages: 1, page });
+  const col = db.collection(WITHDRAW_ATTEMPTS);
+  const [attempts, total] = await Promise.all([
+    col.find({}).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(limit).toArray(),
+    col.countDocuments({}),
+  ]);
+  const users = await db.collection("users")
+    .find({ _id: { $in: [...new Set(attempts.map((a) => a.userId.toString()))].map((id) => new ObjectId(id)) } }, { projection: { firstName: 1, lastName: 1, email: 1 } })
+    .toArray();
+  const userMap = Object.fromEntries(users.map((u) => [u._id.toString(), u]));
+
+  return NextResponse.json({
+    transactions: attempts.map((a) => ({
+      _id: a._id.toString(),
+      type: "withdrawal",
+      amount: a.amountUsd,
+      amountThb: a.amountThb,
+      status: "blocked",
+      transactionId: "-",
+      accountNumber: a.accountNumber,
+      createdAt: a.createdAt,
+      userId: a.userId.toString(),
+      user: userMap[a.userId.toString()] ?? null,
+      blockReason: a.message,
+      bonusStatus: a.bonus ?? null, // as it was at the time of the attempt
+    })),
+    total,
+    pages: Math.max(1, Math.ceil(total / limit)),
     page,
   });
 }

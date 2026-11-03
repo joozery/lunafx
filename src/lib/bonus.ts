@@ -159,3 +159,43 @@ export async function forfeitBonusesIfBusted(db: Db, accountIdStr: string) {
     { $set: { status: "forfeited", forfeitedAt: new Date() } },
   );
 }
+
+/* ── Withdrawal checks shown to admins ── */
+
+/** Bonus picture of an account as the withdrawal check sees it, in a form admins can display. */
+export interface BonusWithdrawSummary {
+  hasBonus: boolean;            // account has ever received a deposit bonus
+  active: BonusStatus["active"]; // turnover still owed (withdrawals blocked) or null
+  withdrawLimitUsd: number | null; // remaining cap once turnover is met; null = no cap
+}
+
+export async function bonusWithdrawSummary(db: Db, account: WithId<Document>): Promise<BonusWithdrawSummary> {
+  const hasBonus = (await db.collection("bonuses").countDocuments({ accountId: account._id.toString() }, { limit: 1 })) > 0;
+  if (!hasBonus) return { hasBonus, active: null, withdrawLimitUsd: null };
+  const st = await getBonusStatus(db, account);
+  return { hasBonus, active: st.active, withdrawLimitUsd: st.withdrawLimitUsd };
+}
+
+export const WITHDRAW_ATTEMPTS = "withdrawAttempts";
+const ATTEMPT_NOTIFY_COOLDOWN_MS = 10 * 60 * 1000;
+
+/**
+ * Record a withdrawal the bonus rules refused, so admins can see who tried and how far off they
+ * were. Returns whether admins should be notified (at most once per account per cooldown, so a
+ * customer clicking repeatedly doesn't flood the LINE group).
+ */
+export async function recordBlockedWithdrawal(
+  db: Db,
+  input: {
+    userId: Document; accountNumber: string; amountUsd: number; amountThb: number;
+    reason: "bonus_active" | "over_cap"; message: string; bonus: BonusWithdrawSummary;
+  },
+): Promise<{ notify: boolean }> {
+  const col = db.collection(WITHDRAW_ATTEMPTS);
+  const recent = await col.findOne({
+    accountNumber: input.accountNumber,
+    createdAt: { $gt: new Date(Date.now() - ATTEMPT_NOTIFY_COOLDOWN_MS) },
+  });
+  await col.insertOne({ ...input, createdAt: new Date() });
+  return { notify: !recent };
+}
