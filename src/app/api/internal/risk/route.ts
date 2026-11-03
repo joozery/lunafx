@@ -5,6 +5,7 @@ import { getDb } from "@/lib/mongodb";
 import { calcTradePnl } from "@/lib/pnl";
 import { getConversionMids, getServerQuote, type Quote } from "@/lib/quote";
 import { accountStopOutLevel, slTpHit, stopOutOrder, type RiskPosition } from "@/lib/risk";
+import { getDefaultStopOutLevel } from "@/lib/stopOut";
 import { closeTrade, internalToken } from "@/lib/trading";
 import { enforceCopyLossLimits } from "@/lib/copyTrading";
 import { fillPendingOrders } from "@/lib/pendingOrders";
@@ -13,7 +14,7 @@ import { fillPendingOrders } from "@/lib/pendingOrders";
  * Called by server.js every few seconds. Fills pending orders whose price was reached,
  * closes positions whose SL/TP was hit,
  * then runs stop-out on accounts whose margin level fell to their stop-out level
- * (user-chosen, 0–100%, default STOP_OUT_LEVEL).
+ * (user- or admin-chosen, 0–100%; otherwise the admin's system default).
  */
 export async function POST(req: NextRequest) {
   const expected = internalToken("internal-risk");
@@ -55,6 +56,7 @@ export async function POST(req: NextRequest) {
   }
 
   // 2) Stop-out, per account
+  const defaultStopOut = await getDefaultStopOutLevel(db);
   const byAccount = new Map<string, typeof stillOpen>();
   for (const t of stillOpen) {
     const list = byAccount.get(t.accountId) ?? [];
@@ -75,7 +77,7 @@ export async function POST(req: NextRequest) {
       return { id: t._id.toString(), margin: t.margin ?? 0, pnl: calcTradePnl(t.type, t.symbol, t.openPrice, price, t.volume, mids) };
     });
 
-    for (const id of stopOutOrder(account.balance ?? 0, positions, accountStopOutLevel(account.stopOutLevel))) {
+    for (const id of stopOutOrder(account.balance ?? 0, positions, accountStopOutLevel(account.stopOutLevel, defaultStopOut))) {
       const t = trades.find((x) => x._id.toString() === id)!;
       const r = await closeTrade(db, t, quotes.get(t.symbol)!, "stop_out");
       if (r.ok) closed.push({ tradeId: id, reason: "stop_out", pnl: r.pnl });

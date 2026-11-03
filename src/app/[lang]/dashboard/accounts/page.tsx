@@ -5,6 +5,7 @@ import { ObjectId } from "mongodb";
 import { hasLocale } from "@/dictionaries";
 import { AccountsClient, AccountData } from "@/components/dashboard/AccountsClient";
 import { accountStopOutLevel } from "@/lib/risk";
+import { getDefaultStopOutLevel } from "@/lib/stopOut";
 
 export default async function TradingAccountsPage(props: { params: Promise<{ lang: string }> }) {
   const { lang } = await props.params;
@@ -21,6 +22,7 @@ export default async function TradingAccountsPage(props: { params: Promise<{ lan
     .find({ userId: userIdObj })
     .sort({ createdAt: -1 })
     .toArray();
+  const defaultStopOut = await getDefaultStopOutLevel(db);
 
   const accounts: AccountData[] = rawAccounts.map((a) => ({
     id: a._id.toString(),
@@ -33,7 +35,7 @@ export default async function TradingAccountsPage(props: { params: Promise<{ lan
     equity: Number(a.equity) || Number(a.balance) || 0,
     freeMargin: Number(a.freeMargin) || Number(a.balance) || 0,
     leverage: a.leverage || "1:500",
-    stopOutLevel: accountStopOutLevel(a.stopOutLevel),
+    stopOutLevel: accountStopOutLevel(a.stopOutLevel, defaultStopOut),
     isDemo: Boolean(a.isDemo),
     status: (a.status || "active") as "active" | "suspended" | "archived",
   }));

@@ -16,6 +16,8 @@ type Account = {
   type: string;
   isDemo: boolean;
   leverage: string;
+  stopOutLevel: number;
+  stopOutIsDefault: boolean;
   status: string;
   balance: number;
   equity: number;
@@ -170,6 +172,25 @@ export default function AdminUserTrading({ userId }: { userId: string }) {
 
   useEffect(() => { load(); }, [load]);
 
+  const [savingStopOut, setSavingStopOut] = useState("");
+  const saveStopOut = async (acc: string, level: number) => {
+    setSavingStopOut(acc);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: acc, stopOutLevel: level }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "บันทึกไม่สำเร็จ");
+      setData((d) => d && { ...d, accounts: d.accounts.map((a) => (a.id === acc ? { ...a, stopOutLevel: level, stopOutIsDefault: false } : a)) });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "บันทึกไม่สำเร็จ");
+    } finally {
+      setSavingStopOut("");
+    }
+  };
+
   if (!data && loading) {
     return <div className="space-y-3">{[0, 1, 2].map((i) => <div key={i} className="h-16 bg-slate-100 rounded-xl animate-pulse" />)}</div>;
   }
@@ -310,6 +331,7 @@ export default function AdminUserTrading({ userId }: { userId: string }) {
       {/* ── Per-account ── */}
       <section>
         <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">บัญชีเทรด</h3>
+        {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
         {data.accounts.length === 0 ? (
           <p className="text-sm text-slate-400">ยังไม่มีบัญชีเทรด</p>
         ) : (
@@ -317,7 +339,7 @@ export default function AdminUserTrading({ userId }: { userId: string }) {
             <table className="w-full text-xs">
               <thead className="bg-[#faf8f5] text-slate-500">
                 <tr>
-                  {["บัญชี", "Balance", "Equity", "Free margin", "Lot ปิดแล้ว", "Lot เปิดอยู่", "Pip (ระยะ)", "Pip × lot", "P&L สะสม"].map((h) => (
+                  {["บัญชี", "Stop Out", "Balance", "Equity", "Free margin", "Lot ปิดแล้ว", "Lot เปิดอยู่", "Pip (ระยะ)", "Pip × lot", "P&L สะสม"].map((h) => (
                     <th key={h} className="px-3 py-2 text-left font-semibold whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -331,6 +353,19 @@ export default function AdminUserTrading({ userId }: { userId: string }) {
                         {a.isDemo ? "DEMO" : "LIVE"}
                       </span>
                       <p className="text-[10px] text-slate-400">{a.type} · {a.leverage}</p>
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <select
+                        value={a.stopOutLevel}
+                        disabled={savingStopOut === a.id}
+                        onChange={(e) => saveStopOut(a.id, Number(e.target.value))}
+                        className={`text-xs border rounded-lg px-1.5 py-1 bg-white disabled:opacity-40 ${a.stopOutLevel < 50 ? "border-amber-300 text-amber-700" : "border-slate-200"}`}
+                      >
+                        {Array.from({ length: 11 }, (_, i) => i * 10).map((v) => (
+                          <option key={v} value={v}>{v}%</option>
+                        ))}
+                      </select>
+                      {a.stopOutIsDefault && <p className="text-[9px] text-slate-400 mt-0.5">ค่าเริ่มต้นระบบ</p>}
                     </td>
                     <td className="px-3 py-2 font-mono font-bold">{usd(a.balance)}</td>
                     <td className="px-3 py-2 font-mono">{usd(a.equity)}</td>

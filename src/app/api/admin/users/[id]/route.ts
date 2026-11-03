@@ -4,6 +4,8 @@ import { requireAdmin } from "@/lib/adminAuth";
 import { getDb } from "@/lib/mongodb";
 import { bonusTrades, getBonusStatus, sumTurnover } from "@/lib/bonus";
 import { tradePips, type PipMode } from "@/lib/bonusRules";
+import { STOP_OUT_MAX, STOP_OUT_MIN, accountStopOutLevel } from "@/lib/risk";
+import { getDefaultStopOutLevel } from "@/lib/stopOut";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const round1 = (n: number) => Math.round(n * 10) / 10;
@@ -128,6 +130,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     pipsBy.set(t.accountId, cur);
   }
 
+  const defaultStopOut = await getDefaultStopOutLevel(db);
   const gateBy = new Map<string, Awaited<ReturnType<typeof getBonusStatus>>>();
   const accountsOut = await Promise.all(accounts.map(async (a) => {
     const aid = a._id.toString();
@@ -140,6 +143,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       type: a.type || "Standard",
       isDemo: Boolean(a.isDemo),
       leverage: a.leverage || "1:500",
+      stopOutLevel: accountStopOutLevel(a.stopOutLevel, defaultStopOut),
+      stopOutIsDefault: a.stopOutLevel == null,
       status: a.status || "active",
       balance: round2(Number(a.balance) || 0),
       equity: round2(Number(a.equity ?? a.balance) || 0),
@@ -228,4 +233,29 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     pages: Math.max(1, Math.ceil(totalTrades / PAGE_SIZE)),
     page,
   });
+}
+
+/** Admin sets the stop-out level on one of this user's accounts (same range the user can choose). */
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const admin = await requireAdmin();
+  if (!admin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const { id } = await params;
+  const body = await req.json().catch(() => null);
+  const accountId = body?.accountId;
+  if (!ObjectId.isValid(id) || typeof accountId !== "string" || !ObjectId.isValid(accountId)) {
+    return NextResponse.json({ error: "Account not found" }, { status: 404 });
+  }
+  const level = Number(body?.stopOutLevel);
+  if (!Number.isInteger(level) || level < STOP_OUT_MIN || level > STOP_OUT_MAX) {
+    return NextResponse.json({ error: `Stop-out ต้องเป็นจำนวนเต็ม ${STOP_OUT_MIN}–${STOP_OUT_MAX}` }, { status: 400 });
+  }
+
+  const db = await getDb();
+  const result = await db.collection("accounts").updateOne(
+    { _id: new ObjectId(accountId), userId: new ObjectId(id) },
+    { $set: { stopOutLevel: level, stopOutSetBy: { adminEmail: admin.email, at: new Date() } } },
+  );
+  if (result.matchedCount === 0) return NextResponse.json({ error: "Account not found" }, { status: 404 });
+  return NextResponse.json({ ok: true, stopOutLevel: level });
 }

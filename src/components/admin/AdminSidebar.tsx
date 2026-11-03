@@ -21,6 +21,7 @@ import {
   TrendingUp,
   MessageCircle,
   BookOpen,
+  ShieldAlert,
 } from "lucide-react";
 import type { ElementType } from "react";
 
@@ -65,6 +66,7 @@ export const NAV_GROUPS: { title: string; categoryKey: string; items: NavItem[] 
       { href: "/admin/copy-trading", label: "จัดการ Copy Trading", sub: "บริหาร Master Traders & ROI", icon: TrendingUp, badge: "Master" },
       { href: "/admin/settings/deposit-bank", label: "ตั้งค่าธนาคารรับฝาก", sub: "เลขบัญชีบริษัท & QR", icon: Building2 },
       { href: "/admin/settings/bonus", label: "ตั้งค่าโบนัสเงินฝาก", sub: "โบนัส & เงื่อนไขถอน", icon: Gift },
+      { href: "/admin/settings/stop-out", label: "ตั้งค่า Stop Out", sub: "ระดับปิดออเดอร์อัตโนมัติ", icon: ShieldAlert },
       { href: "/admin/settings/line", label: "แจ้งเตือน LINE", sub: "สมัคร / ฝาก / ถอน", icon: MessageCircle },
     ],
   },

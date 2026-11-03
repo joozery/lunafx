@@ -107,6 +107,9 @@ test('account stop-out level defaults to 50 and is clamped to 0–100', () => {
   assert.equal(accountStopOutLevel(20), 20);
   assert.equal(accountStopOutLevel(-10), 0);
   assert.equal(accountStopOutLevel(150), 100);
+  assert.equal(accountStopOutLevel(undefined, 0), 0);
+  assert.equal(accountStopOutLevel(null, 30), 30);
+  assert.equal(accountStopOutLevel(70, 0), 70);
 });
 
 test('higher stop-out level closes earlier', () => {

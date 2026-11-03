@@ -11,10 +11,13 @@ export const STOP_OUT_LEVEL = 50;
 export const STOP_OUT_MIN = 0;
 export const STOP_OUT_MAX = 100;
 
-/** Account's effective stop-out level: missing or out-of-range values fall back into [MIN, MAX]. */
-export function accountStopOutLevel(value: unknown): number {
+/**
+ * Account's effective stop-out level. An account that never chose one gets `fallback`
+ * (the admin's system default on the server); out-of-range values are clamped into [MIN, MAX].
+ */
+export function accountStopOutLevel(value: unknown, fallback: number = STOP_OUT_LEVEL): number {
   const n = Number(value);
-  if (value == null || !Number.isFinite(n)) return STOP_OUT_LEVEL;
+  if (value == null || !Number.isFinite(n)) return fallback;
   return Math.min(STOP_OUT_MAX, Math.max(STOP_OUT_MIN, Math.round(n)));
 }
 

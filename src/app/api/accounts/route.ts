@@ -3,6 +3,7 @@ import { getSession } from "@/lib/session";
 import { getDb } from "@/lib/mongodb";
 import { ObjectId } from "mongodb";
 import { accountStopOutLevel } from "@/lib/risk";
+import { getDefaultStopOutLevel } from "@/lib/stopOut";
 
 export async function GET() {
   try {
@@ -19,6 +20,7 @@ export async function GET() {
       .find({ userId: userIdObj })
       .sort({ createdAt: -1 })
       .toArray();
+    const defaultStopOut = await getDefaultStopOutLevel(db);
 
     const formatted = accounts.map((a) => ({
       id: a._id.toString(),
@@ -31,7 +33,7 @@ export async function GET() {
       equity: Number(a.equity) || Number(a.balance) || 0,
       freeMargin: Number(a.freeMargin) || Number(a.balance) || 0,
       leverage: a.leverage || "1:500",
-      stopOutLevel: accountStopOutLevel(a.stopOutLevel),
+      stopOutLevel: accountStopOutLevel(a.stopOutLevel, defaultStopOut),
       isDemo: Boolean(a.isDemo),
       status: a.status || "active",
       createdAt: a.createdAt,
