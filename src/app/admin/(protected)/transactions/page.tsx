@@ -33,6 +33,8 @@ type Txn = {
   blockReason?: string;
   /* withdrawals: balance / bonus held / withdrawable as they were when the customer asked */
   bonusBreakdown?: BonusBreakdown | null;
+  /* deposit: sender name on the slip vs. the customer's name */
+  nameCheck?: { result: "match" | "mismatch" | "unknown"; slipName: string; userName: string } | null;
   /* slip2go verification */
   slip2go?: {
     status: string;
@@ -165,6 +167,25 @@ function Slip2GoBadge({ status, code }: { status: string; code: string | null })
   );
 }
 
+function NameCheckBadge({ n, detailed = false }: { n: NonNullable<Txn["nameCheck"]>; detailed?: boolean }) {
+  const style = n.result === "match"
+    ? { cls: "bg-emerald-100 text-emerald-700", label: "✓ ชื่อผู้โอนตรง" }
+    : n.result === "mismatch"
+      ? { cls: "bg-orange-100 text-orange-700", label: "⚠ ชื่อผู้โอนไม่ตรง" }
+      : { cls: "bg-gray-100 text-gray-500", label: "❔ ตรวจชื่อไม่ได้" };
+  return (
+    <div className="space-y-0.5">
+      <span title={`สลิป: ${n.slipName} · ลูกค้า: ${n.userName}`} className={`inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full ${style.cls}`}>{style.label}</span>
+      {detailed && (
+        <p className="text-[11px] text-gray-600">
+          สลิป: <span className="font-semibold">{n.slipName}</span> · ลูกค้า: <span className="font-semibold">{n.userName || "-"}</span>
+          {n.result === "unknown" && <span className="text-gray-400"> (ภาษาไทย/อังกฤษไม่ตรงกัน เทียบอัตโนมัติไม่ได้)</span>}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
@@ -179,6 +200,7 @@ const TXN_TYPE_LABEL: Record<string, string> = {
   bonus:      "โบนัสเงินฝาก",
   commission: "ค่าแนะนำเพื่อน",
   adjustment: "ปรับยอดติดลบ",
+  manual_adjustment: "ปรับยอดโดยแอดมิน",
   copy_fee:        "ส่วนแบ่ง Copy (หัก)",
   copy_fee_income: "ส่วนแบ่ง Copy (รับ)",
 };
@@ -305,8 +327,8 @@ export default function AdminTransactionsPage() {
                 </div>
                 <div className="flex items-end justify-between gap-3">
                   <div>
-                    <div className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full ${DEBIT_TYPES.has(t.type) ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>
-                      {DEBIT_TYPES.has(t.type) ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownLeft className="w-3 h-3" />}
+                    <div className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full ${DEBIT_TYPES.has(t.type) || t.amount < 0 ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>
+                      {DEBIT_TYPES.has(t.type) || t.amount < 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownLeft className="w-3 h-3" />}
                       {TXN_TYPE_LABEL[t.type] ?? t.type}
                     </div>
                     <p className="text-[11px] text-gray-400 mt-1">{formatDate(t.createdAt)}</p>
@@ -327,6 +349,7 @@ export default function AdminTransactionsPage() {
                       </a>
                     )}
                     {t.slip2go?.checked && <Slip2GoBadge status={t.slip2go.status} code={t.slip2go.code} />}
+                    {t.nameCheck && <NameCheckBadge n={t.nameCheck} />}
                   </div>
                 )}
                 <div className="flex gap-2">
@@ -385,8 +408,8 @@ export default function AdminTransactionsPage() {
                       ) : <span className="text-gray-400 text-xs">-</span>}
                     </td>
                     <td className="px-5 py-4">
-                      <div className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full ${DEBIT_TYPES.has(t.type) ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>
-                        {DEBIT_TYPES.has(t.type) ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownLeft className="w-3 h-3" />}
+                      <div className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full ${DEBIT_TYPES.has(t.type) || t.amount < 0 ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}>
+                        {DEBIT_TYPES.has(t.type) || t.amount < 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownLeft className="w-3 h-3" />}
                         {TXN_TYPE_LABEL[t.type] ?? t.type}
                       </div>
                     </td>
@@ -410,6 +433,7 @@ export default function AdminTransactionsPage() {
                         {t.slip2go?.checked && (
                           <Slip2GoBadge status={t.slip2go.status} code={t.slip2go.code} />
                         )}
+                        {t.nameCheck && <NameCheckBadge n={t.nameCheck} />}
                       </div>
                     </td>
                     <td className="px-5 py-4">
@@ -530,6 +554,17 @@ export default function AdminTransactionsPage() {
                     </p>
                     {selected.bonusStatus ? <BonusBadge b={selected.bonusStatus} blocked={selected.status === "blocked"} detailed /> : <p className="text-xs text-gray-500">ไม่พบบัญชีเทรด</p>}
                     {selected.blockReason && <p className="text-xs text-gray-700">ข้อความที่ลูกค้าเห็น: {selected.blockReason}</p>}
+                  </div>
+                )}
+
+                {/* Deposit: sender name check */}
+                {selected.type === "deposit" && selected.nameCheck && (
+                  <div className={`border rounded-xl p-4 space-y-2 ${selected.nameCheck.result === "mismatch" ? "bg-orange-50 border-orange-200" : "bg-white border-gray-200"}`}>
+                    <p className="text-xs font-bold text-gray-700 uppercase tracking-wider">ชื่อผู้โอนในสลิป</p>
+                    <NameCheckBadge n={selected.nameCheck} detailed />
+                    {selected.nameCheck.result === "mismatch" && (
+                      <p className="text-[11px] text-orange-700">สลิปถูกต้องแต่ชื่อผู้โอนไม่ใช่ชื่อลูกค้า ระบบจึงไม่อนุมัติอัตโนมัติ ตรวจสอบก่อนกดอนุมัติ (เช่น ญาติโอนให้)</p>
+                    )}
                   </div>
                 )}
 

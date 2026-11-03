@@ -16,6 +16,9 @@ function formatDate(date: Date, lang: string) {
 }
 
 const METHOD_LABELS: Record<string, string> = {
+  manual: "Manual",
+  manual_bonus: "Manual",
+  bonus_replaced: "แทนที่ด้วยโบนัสรอบใหม่",
   card: "Credit / Debit Card",
   bank: "Bank Transfer",
   wallet: "E-Wallet",
@@ -26,6 +29,7 @@ const METHOD_LABELS: Record<string, string> = {
 const CREDIT_LABELS: Record<string, { th: string; en: string }> = {
   bonus:      { th: "โบนัสเงินฝาก", en: "Deposit Bonus" },
   commission: { th: "ค่าแนะนำเพื่อน", en: "Referral Commission" },
+  manual_adjustment: { th: "ปรับยอดโดยทีมงาน", en: "Balance Adjustment" },
 };
 
 const STATUS_STYLE: Record<string, string> = {
@@ -46,7 +50,7 @@ export default async function HistoryPage(props: { params: Promise<{ lang: strin
   type Transaction = {
     _id: string;
     userId: string;
-    type: "deposit" | "withdrawal" | "transfer" | "bonus" | "commission";
+    type: "deposit" | "withdrawal" | "transfer" | "bonus" | "commission" | "manual_adjustment";
     amount: number;
     method?: string;
     fromAccount?: string;
@@ -127,8 +131,8 @@ export default async function HistoryPage(props: { params: Promise<{ lang: strin
                   </div>
                 </div>
                 <div className="text-right flex flex-col items-end gap-1">
-                  <p className={`text-sm font-bold ${t.type === "withdrawal" ? "text-red-500" : "text-emerald-600"}`}>
-                    {t.type === "withdrawal" ? "−" : "+"}${Number(t.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  <p className={`text-sm font-bold ${t.type === "withdrawal" || Number(t.amount) < 0 ? "text-red-500" : "text-emerald-600"}`}>
+                    {t.type === "withdrawal" || Number(t.amount) < 0 ? "−" : "+"}${Math.abs(Number(t.amount)).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                   </p>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${STATUS_STYLE[t.status] ?? "bg-gray-100 text-gray-600"}`}>
                     {isth

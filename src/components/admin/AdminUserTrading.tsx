@@ -120,6 +120,93 @@ const dt = (d: string) =>
   new Date(d).toLocaleString("th-TH", { day: "numeric", month: "short", year: "2-digit", hour: "2-digit", minute: "2-digit" });
 const pnlColor = (n: number) => (n > 0 ? "text-emerald-600" : n < 0 ? "text-red-600" : "text-slate-500");
 
+const CREDIT_KINDS = {
+  deposit:    { label: "ยอดฝาก", hint: "นับเป็นเงินฝากจริง: ได้โบนัสเงินฝากและค่าแนะนำตามกติกา" },
+  bonus:      { label: "โบนัส", hint: "ติดเงื่อนไข Lot/Pips ตามตั้งค่าโบนัสตอนนี้ ต้องคงไว้ในบัญชีจนครบ" },
+  adjustment: { label: "ปรับยอด", hint: "เพิ่ม/ลดยอดอย่างเดียว ไม่มีโบนัส ไม่มีค่าแนะนำ (ใส่ติดลบเพื่อหัก)" },
+} as const;
+type CreditKind = keyof typeof CREDIT_KINDS;
+
+/** Manual credit / debit of one of the user's trading accounts, with a confirm step. */
+function ManualCredit({ userId, accounts, onDone }: { userId: string; accounts: Account[]; onDone: () => void }) {
+  const [accountId, setAccountId] = useState(accounts.find((a) => !a.isDemo)?.id ?? accounts[0]?.id ?? "");
+  const [kind, setKind] = useState<CreditKind>("deposit");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const acc = accounts.find((a) => a.id === accountId);
+  const value = Number(amount);
+  const valid = acc && Number.isFinite(value) && value !== 0 && note.trim() !== "" && (value > 0 || kind === "adjustment");
+
+  const submit = async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/credit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId, kind, amountUsd: value, note }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "ทำรายการไม่สำเร็จ");
+      setMsg({ ok: true, text: `สำเร็จ: ${value < 0 ? "หัก" : "เติม"} ${usd(Math.abs(value))} (${CREDIT_KINDS[kind].label}) บัญชี #${acc?.accountNumber}${json.bonusUsd > 0 ? ` + โบนัสเงินฝาก ${usd(json.bonusUsd)}` : ""}` });
+      setAmount("");
+      setNote("");
+      onDone();
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "ทำรายการไม่สำเร็จ" });
+    } finally {
+      setBusy(false);
+      setConfirming(false);
+    }
+  };
+
+  const field = "text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white";
+  return (
+    <section className="border border-slate-200 rounded-xl p-4 space-y-3 bg-[#faf8f5]">
+      <h3 className="text-sm font-black text-slate-900">💳 เติม / หักเครดิต (manual)</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+        <select value={accountId} onChange={(e) => { setAccountId(e.target.value); setConfirming(false); }} className={field}>
+          {accounts.map((a) => <option key={a.id} value={a.id}>#{a.accountNumber}{a.isDemo ? " (Demo)" : ""} · {usd(a.balance)}</option>)}
+        </select>
+        <select value={kind} onChange={(e) => { setKind(e.target.value as CreditKind); setConfirming(false); }} className={field}>
+          {(Object.keys(CREDIT_KINDS) as CreditKind[]).map((k) => <option key={k} value={k}>{CREDIT_KINDS[k].label}</option>)}
+        </select>
+        <input type="number" step="0.01" inputMode="decimal" placeholder="จำนวน USD" value={amount}
+          onChange={(e) => { setAmount(e.target.value); setConfirming(false); }} className={`${field} font-mono`} />
+        <input type="text" maxLength={300} placeholder="หมายเหตุ (จำเป็น)" value={note}
+          onChange={(e) => { setNote(e.target.value); setConfirming(false); }} className={field} />
+      </div>
+      <p className="text-[11px] text-slate-500">{CREDIT_KINDS[kind].hint}</p>
+      {value < 0 && kind !== "adjustment" && <p className="text-[11px] text-red-600">หักยอดได้เฉพาะประเภท &quot;ปรับยอด&quot;</p>}
+
+      {!confirming ? (
+        <button disabled={!valid || busy} onClick={() => setConfirming(true)}
+          className="text-xs font-bold px-4 py-2 rounded-lg bg-slate-900 text-white disabled:opacity-40">
+          ตรวจสอบรายการ
+        </button>
+      ) : (
+        <div className="bg-white border border-amber-300 rounded-lg p-3 space-y-2">
+          <p className="text-xs text-slate-800">
+            ยืนยัน<b>{value < 0 ? "หัก" : "เติม"} {usd(Math.abs(value))}</b> เป็น <b>{CREDIT_KINDS[kind].label}</b> เข้าบัญชี <b>#{acc?.accountNumber}</b>
+            {" "}(ยอดหลังทำรายการ {usd((acc?.balance ?? 0) + value)})
+          </p>
+          <div className="flex gap-2">
+            <button disabled={busy} onClick={submit} className="text-xs font-bold px-4 py-2 rounded-lg bg-[#b89766] text-white disabled:opacity-40">
+              {busy ? "กำลังทำรายการ..." : "ยืนยัน"}
+            </button>
+            <button disabled={busy} onClick={() => setConfirming(false)} className="text-xs font-bold px-4 py-2 rounded-lg border border-slate-200 bg-white">ยกเลิก</button>
+          </div>
+        </div>
+      )}
+      {msg && <p className={`text-xs font-bold ${msg.ok ? "text-emerald-700" : "text-red-600"}`}>{msg.text}</p>}
+    </section>
+  );
+}
+
 function Progress({ done, need, unit }: { done: number; need: number; unit: string }) {
   const met = done >= need;
   const pct = need > 0 ? Math.min(100, (done / need) * 100) : 100;
@@ -389,6 +476,8 @@ export default function AdminUserTrading({ userId }: { userId: string }) {
           </div>
         )}
       </section>
+
+      {data.accounts.length > 0 && <ManualCredit userId={userId} accounts={data.accounts} onDone={load} />}
 
       {/* ── Trade history ── */}
       <section id="admin-user-trades" className="scroll-mt-4">

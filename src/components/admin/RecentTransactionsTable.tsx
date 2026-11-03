@@ -18,6 +18,7 @@ const TYPE_LABELS: Record<string, string> = {
   bonus:      "โบนัสเงินฝาก",
   commission: "ค่าแนะนำเพื่อน",
   adjustment: "ปรับยอดติดลบ",
+  manual_adjustment: "ปรับยอดโดยแอดมิน",
   copy_fee:        "ส่วนแบ่ง Copy (หัก)",
   copy_fee_income: "ส่วนแบ่ง Copy (รับ)",
 };
