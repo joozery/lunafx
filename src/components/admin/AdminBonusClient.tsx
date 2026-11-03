@@ -14,7 +14,7 @@ interface BonusRow {
   requiredPips: number;
   tradedPips: number | null;
   maxWithdrawUsd: number;
-  status: "active" | "completed" | "forfeited";
+  status: "active" | "completed" | "forfeited" | "replaced";
   createdAt: string;
 }
 
@@ -22,6 +22,7 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   active:    { label: "กำลังทำเทิร์น", cls: "bg-amber-50 text-amber-700 border-amber-200" },
   completed: { label: "ทำเทิร์นครบ",   cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   forfeited: { label: "ยกเลิก (พอร์ตหมด)", cls: "bg-slate-100 text-slate-500 border-slate-200" },
+  replaced:  { label: "แทนที่ด้วยโบนัสรอบใหม่", cls: "bg-slate-100 text-slate-500 border-slate-200" },
 };
 
 const inputCls = "w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 font-mono font-bold text-slate-900 text-sm focus:outline-none focus:border-[#c6a87c]";
@@ -103,7 +104,7 @@ export function AdminBonusClient() {
           </div>
           <h1 className="text-2xl font-black text-slate-900 mt-2">โบนัสเงินฝาก & เงื่อนไขการถอน</h1>
           <p className="text-xs text-slate-500 mt-1">
-            โบนัสเข้า Balance อัตโนมัติเมื่อยอดฝากได้รับอนุมัติ ลูกค้าถอนไม่ได้จนกว่าจะเทรดครบตามเงื่อนไข
+            โบนัสเข้า Balance อัตโนมัติเมื่อยอดฝากได้รับอนุมัติ ลูกค้าถอนทุน+กำไรได้ แต่ยอดโบนัสต้องคงไว้ในบัญชีจนกว่าจะเทรดครบตามเงื่อนไข (ถอนระหว่างทาง = เงื่อนไขเริ่มนับใหม่; ฝากใหม่ได้โบนัสใหม่ = แทนที่โบนัสเดิม ไม่บวกซ้อน)
           </p>
         </div>
         <button onClick={load} className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-4 py-2.5 rounded-xl text-xs transition-all flex items-center gap-2 self-start sm:self-auto">

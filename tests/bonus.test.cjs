@@ -9,7 +9,7 @@ function loadTs(path) {
   vm.runInNewContext(code, { exports: module.exports, module });
   return module.exports;
 }
-const { calcBonus, requiredLots, withdrawAllowance, parseBonusSetting, DEFAULT_BONUS_SETTING, tradePips, countedPips } = loadTs('src/lib/bonusRules.ts');
+const { calcBonus, requiredLots, withdrawAllowance, parseBonusSetting, DEFAULT_BONUS_SETTING, tradePips, countedPips, withdrawBreakdown, replacedBonusDeduction } = loadTs('src/lib/bonusRules.ts');
 const on = { ...DEFAULT_BONUS_SETTING, enabled: true };
 
 test('fixed bonus: deposit $20 gets $30, below minimum gets nothing', () => {
@@ -63,4 +63,19 @@ test('pip setting validation', () => {
   assert.equal(ok.requiredPips, 100000);
   assert.equal(ok.pipMode, 'lot_weighted');
   assert.equal(parseBonusSetting(base).pipMode, 'distance');
+});
+
+test('withdraw breakdown: own money and profit out, active bonus stays', () => {
+  assert.deepEqual({ ...withdrawBreakdown(285.51, 40.04, null) }, { balanceUsd: 285.51, bonusHeldUsd: 40.04, withdrawableUsd: 245.47 });
+  // lost part of the bonus: only what is left is held
+  assert.deepEqual({ ...withdrawBreakdown(30, 40, null) }, { balanceUsd: 30, bonusHeldUsd: 30, withdrawableUsd: 0 });
+  // no bonus, with a cap from a completed one
+  assert.deepEqual({ ...withdrawBreakdown(500, 0, 120) }, { balanceUsd: 500, bonusHeldUsd: 0, withdrawableUsd: 120 });
+  assert.deepEqual({ ...withdrawBreakdown(-5, 10, null) }, { balanceUsd: 0, bonusHeldUsd: 0, withdrawableUsd: 0 });
+});
+
+test('replaced bonus deduction never touches the new deposit', () => {
+  assert.equal(replacedBonusDeduction(385.51, 100, 40.04), 40.04); // had 285.51 before
+  assert.equal(replacedBonusDeduction(120, 100, 40), 20);          // only 20 left before depositing
+  assert.equal(replacedBonusDeduction(100, 100, 40), 0);
 });

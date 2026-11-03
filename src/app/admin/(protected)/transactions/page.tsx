@@ -31,6 +31,8 @@ type Txn = {
   /* withdrawals: bonus status (live for pending; at the time of the attempt for blocked) */
   bonusStatus?: BonusStatus | null;
   blockReason?: string;
+  /* withdrawals: balance / bonus held / withdrawable as they were when the customer asked */
+  bonusBreakdown?: BonusBreakdown | null;
   /* slip2go verification */
   slip2go?: {
     status: string;
@@ -61,6 +63,16 @@ type BonusStatus = {
     requiredPips: number; tradedPips: number; remainingPips: number;
   } | null;
   withdrawLimitUsd: number | null;
+  bonusHeldUsd?: number;    // missing on attempts logged before withdrawals with a bonus were allowed
+  withdrawableUsd?: number;
+};
+
+type BonusBreakdown = {
+  balanceUsd: number;
+  bonusHeldUsd: number;
+  withdrawableUsd: number;
+  amountUsd: number;
+  turnoverRestarted: boolean;
 };
 
 const usd = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -77,8 +89,10 @@ function BonusBadge({ b, blocked = false, detailed = false }: { b: BonusStatus |
     ].filter(Boolean).join(" / ");
     return (
       <div className="space-y-0.5">
-        <span className="inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700">⛔ โบนัสยังไม่ครบ · ถอนได้ $0</span>
-        <p className="text-[10px] text-red-600">ขาดอีก {missing}</p>
+        <span className="inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+          🔒 โบนัส {usd(b.bonusHeldUsd ?? a.bonusUsd)} คงไว้{b.withdrawableUsd != null ? ` · ${blocked ? "ถอนได้ตอนนั้น" : "ถอนได้อีก"} ${usd(b.withdrawableUsd)}` : ""}
+        </span>
+        <p className="text-[10px] text-amber-700">เงื่อนไขโบนัสขาดอีก {missing}</p>
         {detailed && (
           <p className="text-[10px] text-gray-500">
             โบนัส {usd(a.bonusUsd)} · เทรดแล้ว {a.tradedLots}/{a.requiredLots} lots
@@ -93,6 +107,34 @@ function BonusBadge({ b, blocked = false, detailed = false }: { b: BonusStatus |
     <span className="inline-flex text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
       ✅ โบนัสครบ · {limit === null ? "ไม่จำกัดยอดถอน" : `${blocked ? "ถอนได้ตอนนั้น" : "ถอนได้อีก"} ${usd(limit)}`}
     </span>
+  );
+}
+
+/** Withdrawal amount split: what was in the account, the bonus kept back, and what is actually paid out. */
+function WithdrawBreakdown({ b, compact = false }: { b: BonusBreakdown; compact?: boolean }) {
+  if (compact) {
+    return (
+      <p className="text-[10px] text-gray-500 leading-snug">
+        ยอด {usd(b.balanceUsd)} − โบนัส {usd(b.bonusHeldUsd)} = ถอนได้ {usd(b.withdrawableUsd)}
+      </p>
+    );
+  }
+  const rows: [string, string, string?][] = [
+    ["ยอดในบัญชีตอนขอถอน", usd(b.balanceUsd)],
+    ["หักโบนัส (คงไว้ในบัญชี)", `− ${usd(b.bonusHeldUsd)}`, "text-amber-700"],
+    ["ถอนได้สูงสุดตอนนั้น", usd(b.withdrawableUsd)],
+    ["ยอดถอนจริง", usd(b.amountUsd), "text-rose-700 text-sm"],
+  ];
+  return (
+    <div className="space-y-1">
+      {rows.map(([k, v, cls]) => (
+        <div key={k} className="flex justify-between text-xs">
+          <span className="text-gray-600">{k}</span>
+          <span className={`font-mono font-bold ${cls ?? "text-gray-900"}`}>{v}</span>
+        </div>
+      ))}
+      {b.turnoverRestarted && <p className="text-[10px] text-amber-700 pt-1">ถอนขณะโบนัสยังไม่ครบ: เงื่อนไขโบนัสเริ่มนับใหม่ตั้งแต่คำขอนี้</p>}
+    </div>
   );
 }
 
@@ -275,6 +317,7 @@ export default function AdminTransactionsPage() {
                   </div>
                 </div>
                 {t.bonusStatus !== undefined && <BonusBadge b={t.bonusStatus} blocked={t.status === "blocked"} />}
+                {t.bonusBreakdown && t.bonusBreakdown.bonusHeldUsd > 0 && <WithdrawBreakdown b={t.bonusBreakdown} compact />}
                 {t.blockReason && <p className="text-[11px] text-gray-500">{t.blockReason}</p>}
                 {(t.slipUrl || t.slip2go?.checked) && (
                   <div className="flex items-center gap-2 flex-wrap">
@@ -363,6 +406,7 @@ export default function AdminTransactionsPage() {
                           </a>
                         ) : t.bonusStatus === undefined ? <span className="text-gray-300 text-xs">-</span> : null}
                         {t.bonusStatus !== undefined && <BonusBadge b={t.bonusStatus} blocked={t.status === "blocked"} />}
+                {t.bonusBreakdown && t.bonusBreakdown.bonusHeldUsd > 0 && <WithdrawBreakdown b={t.bonusBreakdown} compact />}
                         {t.slip2go?.checked && (
                           <Slip2GoBadge status={t.slip2go.status} code={t.slip2go.code} />
                         )}
@@ -489,6 +533,14 @@ export default function AdminTransactionsPage() {
                   </div>
                 )}
 
+                {/* Withdrawal split: bonus kept back vs. amount paid out */}
+                {selected.type === "withdrawal" && selected.bonusBreakdown && (
+                  <div className="bg-white border border-amber-200 rounded-xl p-4 space-y-2">
+                    <p className="text-xs font-bold text-amber-800 uppercase tracking-wider">ยอดถอน (ตอนที่ลูกค้าส่งคำขอ)</p>
+                    <WithdrawBreakdown b={selected.bonusBreakdown} />
+                  </div>
+                )}
+
                 {/* Withdrawal bank details */}
                 {selected.type === "withdrawal" && (selected.bankName || selected.bankAccountNumber) && (
                   <div className="bg-rose-50 border border-rose-100 rounded-xl p-4 space-y-2.5">
@@ -565,10 +617,10 @@ export default function AdminTransactionsPage() {
                 <p className="font-mono text-xs">{selected.bankAccountNumber} · {selected.bankAccountName}</p>
               </div>
             )}
-            {selected && confirmAction?.status === "completed" && selected.type === "withdrawal" && selected.bonusStatus?.active && (
+            {selected && confirmAction?.status === "completed" && selected.type === "withdrawal" && selected.bonusBreakdown && selected.bonusBreakdown.bonusHeldUsd > 0 && (
               <div className="bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 my-3 text-xs text-amber-800 space-y-1">
-                <p className="font-bold">⚠ บัญชีนี้ยังทำเงื่อนไขโบนัสไม่ครบ (เช่น ได้โบนัสใหม่หลังส่งคำขอนี้)</p>
-                <BonusBadge b={selected.bonusStatus} detailed />
+                <p className="font-bold">บัญชีนี้มีโบนัสค้าง: หักโบนัสไว้ในบัญชีแล้ว ยอดที่ต้องโอนคือยอดถอนจริงด้านบน</p>
+                <WithdrawBreakdown b={selected.bonusBreakdown} />
               </div>
             )}
             <div className="flex gap-3 justify-end mt-5">

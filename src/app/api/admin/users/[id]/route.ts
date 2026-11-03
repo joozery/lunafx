@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ObjectId, type Document, type WithId } from "mongodb";
 import { requireAdmin } from "@/lib/adminAuth";
 import { getDb } from "@/lib/mongodb";
-import { bonusTrades, getBonusStatus, sumTurnover } from "@/lib/bonus";
+import { bonusCountFrom, bonusTrades, getBonusStatus, sumTurnover } from "@/lib/bonus";
 import { tradePips, type PipMode } from "@/lib/bonusRules";
 import { STOP_OUT_MAX, STOP_OUT_MIN, accountStopOutLevel } from "@/lib/risk";
 import { getDefaultStopOutLevel } from "@/lib/stopOut";
@@ -11,8 +11,8 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 const round1 = (n: number) => Math.round(n * 10) / 10;
 const PAGE_SIZE = 20;
 
-/** End of a bonus's counting window: when it completed or was forfeited (open-ended while active). */
-const bonusEnd = (b: Document): Date | null => b.completedAt ?? b.forfeitedAt ?? null;
+/** End of a bonus's counting window: when it completed, was forfeited or replaced (open-ended while active). */
+const bonusEnd = (b: Document): Date | null => b.completedAt ?? b.forfeitedAt ?? b.replacedAt ?? null;
 const pipModeOf = (b: Document): PipMode => (b.pipMode === "lot_weighted" ? "lot_weighted" : "distance");
 
 /**
@@ -54,14 +54,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (filterBonus) {
     tradeFilter.accountId = filterBonus.accountId;
     tradeFilter.status = "closed";
-    tradeFilter.openTime = { $gte: filterBonus.createdAt };
+    tradeFilter.openTime = { $gte: bonusCountFrom(filterBonus) };
     const end = bonusEnd(filterBonus);
     if (end) tradeFilter.closeTime = { $lte: end };
   }
 
   // Which bonuses a closed trade counts toward (same rule as the withdrawal check)
   const countsFor = (t: Document) => t.status !== "closed" ? [] : bonusDocs
-    .filter((b) => b.accountId === t.accountId && t.openTime >= b.createdAt && (!bonusEnd(b) || (t.closeTime && t.closeTime <= bonusEnd(b)!)))
+    .filter((b) => b.accountId === t.accountId && t.openTime >= bonusCountFrom(b) && (!bonusEnd(b) || (t.closeTime && t.closeTime <= bonusEnd(b)!)))
     .map((b) => b._id.toString());
 
   const toRow = (t: WithId<Document>) => {
@@ -167,7 +167,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const freshBonuses = await db.collection("bonuses").find({ accountId: { $in: accountIds } }).sort({ createdAt: -1 }).toArray();
   const bonusesOut = await Promise.all(freshBonuses.map(async (b) => {
     const mode = pipModeOf(b);
-    const window = await bonusTrades(db, b.accountId, b.createdAt, bonusEnd(b));
+    const window = await bonusTrades(db, b.accountId, bonusCountFrom(b), bonusEnd(b));
     const { lots, pips } = sumTurnover(window, mode);
     const requiredLots = b.requiredLots ?? 0;
     const requiredPips = b.requiredPips ?? 0;
@@ -178,8 +178,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       depositUsd: b.depositUsd ?? 0,
       bonusUsd: b.bonusUsd ?? 0,
       maxWithdrawUsd: b.maxWithdrawUsd ?? 0,
-      status: b.status as "active" | "completed" | "forfeited",
+      status: b.status as "active" | "completed" | "forfeited" | "replaced",
       createdAt: b.createdAt,
+      countFrom: b.countFrom ?? null, // set when a withdrawal restarted the turnover
+      restarts: b.restarts ?? 0,
       endedAt: bonusEnd(b),
       requiredLots,
       requiredPips,
@@ -200,8 +202,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return {
         accountId: a.id,
         accountNumber: a.accountNumber,
-        canWithdraw: !st?.active,
+        canWithdraw: (st?.withdrawableUsd ?? 0) > 0,
         active: st?.active ?? null,
+        bonusHeldUsd: st?.bonusHeldUsd ?? 0,
+        withdrawableUsd: st?.withdrawableUsd ?? 0,
         withdrawLimitUsd: st?.withdrawLimitUsd ?? null,
       };
     });

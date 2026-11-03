@@ -41,7 +41,9 @@ type Bonus = {
   depositUsd: number;
   bonusUsd: number;
   maxWithdrawUsd: number;
-  status: "active" | "completed" | "forfeited";
+  status: "active" | "completed" | "forfeited" | "replaced";
+  countFrom: string | null;
+  restarts: number;
   createdAt: string;
   endedAt: string | null;
   requiredLots: number;
@@ -59,6 +61,8 @@ type WithdrawCheck = {
   accountNumber: string;
   canWithdraw: boolean;
   active: ActiveBonus | null;
+  bonusHeldUsd: number;
+  withdrawableUsd: number;
   withdrawLimitUsd: number | null;
 };
 
@@ -105,6 +109,7 @@ const BONUS_STATUS: Record<string, { label: string; cls: string }> = {
   active:    { label: "กำลังทำเทิร์น", cls: "bg-amber-50 text-amber-700 border-amber-200" },
   completed: { label: "ทำครบแล้ว",    cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   forfeited: { label: "ถูกริบ (พอร์ตหมด)", cls: "bg-slate-100 text-slate-500 border-slate-200" },
+  replaced:  { label: "แทนที่ด้วยโบนัสรอบใหม่", cls: "bg-slate-100 text-slate-500 border-slate-200" },
 };
 
 const PIP_MODE_TH = { distance: "นับระยะราคา", lot_weighted: "ระยะ × lot" } as const;
@@ -247,11 +252,12 @@ export default function AdminUserTrading({ userId }: { userId: string }) {
                   <div className="flex items-center justify-between">
                     <span className="font-mono font-bold text-sm">#{w.accountNumber}</span>
                     <span className={`text-[11px] font-black px-2 py-0.5 rounded-full ${w.canWithdraw ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
-                      {w.canWithdraw ? "✅ ถอนได้" : "⛔ ยังถอนไม่ได้"}
+                      {w.canWithdraw ? `✅ ถอนได้ ${usd(w.withdrawableUsd)}` : "⛔ ยังถอนไม่ได้"}
                     </span>
                   </div>
                   {w.active ? (
                     <>
+                      <p className="text-[11px] text-amber-700 font-bold">หักโบนัสคงไว้ในบัญชี {usd(w.bonusHeldUsd)}</p>
                       <p className="text-[11px] text-slate-500">
                         โบนัสที่ยังทำไม่ครบรวม {usd(w.active.bonusUsd)} · นับ pip แบบ{PIP_MODE_TH[w.active.pipMode]}
                       </p>
@@ -284,7 +290,8 @@ export default function AdminUserTrading({ userId }: { userId: string }) {
                     <tr key={b.id} className={`border-t border-slate-100 ${bonusId === b.id ? "bg-amber-50/60" : ""}`}>
                       <td className="px-3 py-2 whitespace-nowrap">
                         {dt(b.createdAt)}
-                        {b.endedAt && <p className="text-[10px] text-slate-400">{b.status === "forfeited" ? "ริบ" : "ครบ"} {dt(b.endedAt)}</p>}
+                        {b.endedAt && <p className="text-[10px] text-slate-400">{b.status === "forfeited" ? "ริบ" : b.status === "replaced" ? "แทนที่" : "ครบ"} {dt(b.endedAt)}</p>}
+                        {b.status === "active" && b.countFrom && <p className="text-[10px] text-amber-600">เริ่มนับใหม่ {dt(b.countFrom)} (ถอน {b.restarts} ครั้ง)</p>}
                       </td>
                       <td className="px-3 py-2 font-mono font-bold">#{b.accountNumber}</td>
                       <td className="px-3 py-2 font-mono">{usd(b.depositUsd)}</td>

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { getDb } from "@/lib/mongodb";
 import { getExchangeRate } from "@/lib/exchangeRate";
-import { bonusWithdrawSummary, recordBlockedWithdrawal } from "@/lib/bonus";
+import { bonusWithdrawSummary, recordBlockedWithdrawal, restartBonusTurnover } from "@/lib/bonus";
 import { notifyAdmins, thaiTime } from "@/lib/lineNotify";
 import { ObjectId } from "mongodb";
 
@@ -36,21 +36,19 @@ export async function POST(req: NextRequest) {
   if (!account) return NextResponse.json({ error: "ไม่พบบัญชีเทรด" }, { status: 404 });
   if ((account.balance ?? 0) < amountUsd) return NextResponse.json({ error: "ยอดคงเหลือไม่เพียงพอ" }, { status: 400 });
 
-  /* เงื่อนไขโบนัส: ห้ามถอนจนกว่าจะเทรดครบ และถอนได้ไม่เกินเพดาน (ถ้าตั้งไว้) */
+  /* เงื่อนไขโบนัส: ถอนทุน+กำไรได้ โบนัสที่ยังไม่ครบเงื่อนไขต้องคงไว้ในบัญชี และไม่เกินเพดาน (ถ้าตั้งไว้) */
   const { withdrawRate } = await getExchangeRate(db);
   const amountThb = Math.round(amountUsd * withdrawRate * 100) / 100;
   const bonus = await bonusWithdrawSummary(db, account);
 
   let blocked: { reason: "bonus_active" | "over_cap"; message: string } | null = null;
-  if (bonus.active) {
-    const a = bonus.active;
-    const missing = [
-      a.remainingLots > 0 ? `เทรดอีก ${a.remainingLots} lots (เทรดแล้ว ${a.tradedLots}/${a.requiredLots} lots)` : "",
-      a.remainingPips > 0 ? `ทำอีก ${a.remainingPips.toLocaleString()} pips (ทำแล้ว ${a.tradedPips.toLocaleString()}/${a.requiredPips.toLocaleString()} pips)` : "",
-    ].filter(Boolean).join(" และ ");
-    blocked = { reason: "bonus_active", message: `ยังถอนไม่ได้: ต้อง${missing} เพื่อปลดล็อกโบนัส` };
-  } else if (bonus.withdrawLimitUsd !== null && amountUsd > bonus.withdrawLimitUsd) {
-    blocked = { reason: "over_cap", message: `ถอนได้สูงสุด $${bonus.withdrawLimitUsd} ตามเงื่อนไขโบนัส` };
+  if (amountUsd > bonus.withdrawableUsd) {
+    blocked = bonus.active
+      ? {
+          reason: "bonus_active",
+          message: `ถอนได้สูงสุด $${bonus.withdrawableUsd} (ยอดในบัญชี $${bonus.balanceUsd} หักโบนัส $${bonus.bonusHeldUsd} ที่ต้องคงไว้ในบัญชีจนกว่าจะทำเงื่อนไขครบ)`,
+        }
+      : { reason: "over_cap", message: `ถอนได้สูงสุด $${bonus.withdrawableUsd} ตามเงื่อนไขโบนัส` };
   }
 
   if (blocked) {
@@ -60,11 +58,11 @@ export async function POST(req: NextRequest) {
         userId: new ObjectId(session.userId), accountNumber, amountUsd, amountThb, ...blocked, bonus,
       });
       if (notify) {
-        const canWithdraw = bonus.active ? 0 : bonus.withdrawLimitUsd;
+        const canWithdraw = bonus.withdrawableUsd;
         void notifyAdmins(
           `⛔ ถอนเงินไม่ผ่านเงื่อนไขโบนัส\nลูกค้า: ${session.firstName} ${session.lastName ?? ""} (${session.email})\nบัญชีเทรด: #${accountNumber}\n` +
           `ขอถอน: $${amountUsd} ≈ ฿${amountThb.toLocaleString()}\nเหตุผล: ${blocked.message.replace(/^ยังถอนไม่ได้: /, "")}\n` +
-          `ตอนนี้ถอนได้: ${canWithdraw === null ? "ไม่จำกัด" : `$${canWithdraw}`}\nเวลา: ${thaiTime()}`,
+          `ตอนนี้ถอนได้: $${canWithdraw}${bonus.bonusHeldUsd > 0 ? ` (หักโบนัส $${bonus.bonusHeldUsd} ไว้ในบัญชี)` : ""}\nเวลา: ${thaiTime()}`,
           "withdraw",
         );
       }
@@ -74,11 +72,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: blocked.message }, { status: 400 });
   }
 
-  /* ล็อคยอด (หักจาก balance ทันทีเพื่อกันถอนซ้ำ) */
-  await db.collection("accounts").updateOne(
-    { accountNumber, userId: new ObjectId(session.userId) },
+  /* ล็อคยอด (หักจาก balance ทันทีเพื่อกันถอนซ้ำ) — atomic: balance ต้องยังพอสำหรับยอดถอน + โบนัสที่คงไว้ */
+  const locked = await db.collection("accounts").updateOne(
+    { _id: account._id, balance: { $gte: amountUsd + bonus.bonusHeldUsd } },
     { $inc: { balance: -amountUsd, equity: -amountUsd, freeMargin: -amountUsd } }
   );
+  if (locked.modifiedCount === 0) return NextResponse.json({ error: "ยอดคงเหลือไม่เพียงพอ กรุณาลองใหม่" }, { status: 400 });
 
   const txnId = `WDR-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
@@ -98,13 +97,28 @@ export async function POST(req: NextRequest) {
     transactionId: txnId,
     adminNotes: "",
     bonusAtRequest: bonus.hasBonus ? bonus : null, // what the bonus check saw when this was allowed
+    bonusBreakdown: bonus.hasBonus
+      ? {
+          balanceUsd: bonus.balanceUsd,          // ยอดในบัญชีตอนขอถอน
+          bonusHeldUsd: bonus.bonusHeldUsd,      // โบนัสที่หักไว้ (คงอยู่ในบัญชี)
+          withdrawableUsd: bonus.withdrawableUsd, // ถอนได้สูงสุดตอนนั้น
+          amountUsd,                             // ยอดถอนจริง
+          turnoverRestarted: Boolean(bonus.active),
+        }
+      : null,
     createdAt: new Date(),
     updatedAt: new Date(),
   });
 
+  // A bonus still owing turnover stays in the account; withdrawing restarts its conditions from now
+  if (bonus.active) await restartBonusTurnover(db, account._id.toString(), txnId).catch((e) => console.error("[withdraw] restart turnover failed:", e));
+
+  const bonusLine = bonus.bonusHeldUsd > 0
+    ? `ยอดในบัญชี: $${bonus.balanceUsd} · หักโบนัสคงไว้: $${bonus.bonusHeldUsd} · ถอนได้สูงสุด: $${bonus.withdrawableUsd}\n`
+    : "";
   void notifyAdmins(
     `🏧 คำขอถอนเงิน\nลูกค้า: ${session.firstName} ${session.lastName ?? ""} (${session.email})\nบัญชีเทรด: #${accountNumber}\n` +
-    `ยอด: $${amountUsd} ≈ ฿${amountThb.toLocaleString()}\nโอนเข้า: ${bankName} ${bankAccountNumber} (${bankAccountName})\nRef: ${txnId}\nเวลา: ${thaiTime()}`,
+    `ยอด: $${amountUsd} ≈ ฿${amountThb.toLocaleString()}\n${bonusLine}โอนเข้า: ${bankName} ${bankAccountNumber} (${bankAccountName})\nRef: ${txnId}\nเวลา: ${thaiTime()}`,
     "withdraw",
   );
 

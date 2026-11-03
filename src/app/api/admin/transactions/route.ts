@@ -47,7 +47,10 @@ export async function GET(req: NextRequest) {
   )];
   await Promise.all(pendingAccounts.map(async (accountNumber) => {
     const account = await db.collection("accounts").findOne({ accountNumber, isDemo: { $ne: true } });
-    if (account) bonusByAccount.set(accountNumber, await bonusWithdrawSummary(db, account).catch(() => ({ hasBonus: false, active: null, withdrawLimitUsd: null })));
+    if (account) bonusByAccount.set(accountNumber, await bonusWithdrawSummary(db, account).catch((): BonusWithdrawSummary => {
+      const balanceUsd = Math.round((Number(account.balance) || 0) * 100) / 100;
+      return { hasBonus: false, active: null, withdrawLimitUsd: null, balanceUsd, bonusHeldUsd: 0, withdrawableUsd: balanceUsd };
+    }));
   }));
 
   return NextResponse.json({

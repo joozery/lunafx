@@ -66,6 +66,9 @@ export interface BonusStatus {
     pipMode: PipMode;
   } | null;
   withdrawLimitUsd: number | null; // null = no cap
+  balanceUsd: number;
+  bonusHeldUsd: number;            // active bonus that has to stay in the account
+  withdrawableUsd: number;         // what may be withdrawn right now (balance − held bonus, within any cap)
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -85,6 +88,27 @@ export function requiredLots(s: BonusSetting, bonusUsd: number): number {
 /** Remaining withdrawal allowance under a max-withdraw cap. */
 export function withdrawAllowance(maxWithdrawUsd: number, depositsSinceUsd: number, withdrawnSinceUsd: number): number {
   return Math.max(0, round2(maxWithdrawUsd + depositsSinceUsd - withdrawnSinceUsd));
+}
+
+/**
+ * What an account may withdraw. An active bonus doesn't block withdrawals: the customer takes out
+ * their own money and profit while the bonus (or what is left of it) stays in the account.
+ */
+export function withdrawBreakdown(balanceUsd: number, activeBonusUsd: number, capUsd: number | null) {
+  const balance = Math.max(0, Number(balanceUsd) || 0);
+  const bonusHeldUsd = round2(Math.min(balance, Math.max(0, activeBonusUsd)));
+  let withdrawableUsd = round2(balance - bonusHeldUsd);
+  if (capUsd != null) withdrawableUsd = Math.min(withdrawableUsd, round2(Math.max(0, capUsd)));
+  return { balanceUsd: round2(balance), bonusHeldUsd, withdrawableUsd: Math.max(0, withdrawableUsd) };
+}
+
+/**
+ * A new deposit bonus replaces an active one instead of stacking. The old bonus comes back out
+ * of the account, but never more than the account held before this deposit was credited.
+ */
+export function replacedBonusDeduction(balanceAfterDepositUsd: number, depositUsd: number, oldBonusUsd: number): number {
+  const before = Math.max(0, (Number(balanceAfterDepositUsd) || 0) - (Number(depositUsd) || 0));
+  return round2(Math.min(before, Math.max(0, oldBonusUsd)));
 }
 
 /** Validates and normalises an admin-submitted setting; returns an error message or the setting. */

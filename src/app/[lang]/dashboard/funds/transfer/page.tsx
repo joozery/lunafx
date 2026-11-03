@@ -69,7 +69,7 @@ export default function WithdrawPage(props: { params: Promise<{ lang: string }> 
 
   const amountThb = amountUsd ? (parseFloat(amountUsd) * THB_RATE).toLocaleString() : "0";
 
-  // Bonus turnover blocks withdrawals until complete; refresh whenever the account changes
+  // Bonus status says how much may be withdrawn (an active bonus stays in the account); refresh per account
   useEffect(() => {
     setBonusStatus(null);
     if (!selectedAccount) return;
@@ -111,6 +111,12 @@ export default function WithdrawPage(props: { params: Promise<{ lang: string }> 
     if (!bankAccName.trim()) { setError("กรุณากรอกชื่อบัญชีธนาคาร"); return; }
     if (!amountUsd || parseFloat(amountUsd) < 10) { setError("ยอดถอนขั้นต่ำ $10 USD"); return; }
     if (parseFloat(amountUsd) > selectedAccount.balance) { setError(`ยอดคงเหลือไม่เพียงพอ (มีอยู่ $${selectedAccount.balance.toLocaleString()})`); return; }
+    if (bonusStatus && parseFloat(amountUsd) > bonusStatus.withdrawableUsd) {
+      setError(bonusStatus.bonusHeldUsd > 0
+        ? `ถอนได้สูงสุด $${bonusStatus.withdrawableUsd} (โบนัส $${bonusStatus.bonusHeldUsd} ต้องคงไว้ในบัญชี)`
+        : `ถอนได้สูงสุด $${bonusStatus.withdrawableUsd} ตามเงื่อนไขโบนัส`);
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -412,7 +418,7 @@ export default function WithdrawPage(props: { params: Promise<{ lang: string }> 
                   </button>
                 ))}
                 {selectedAccount && (
-                  <button type="button" onClick={() => setAmountUsd(String(Math.floor(selectedAccount.balance)))}
+                  <button type="button" onClick={() => setAmountUsd(String(Math.floor((bonusStatus?.withdrawableUsd ?? selectedAccount.balance) * 100) / 100))}
                     className="px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-[#c6a87c] transition-all">
                     {isth ? "ถอนทั้งหมด" : "Withdraw All"}
                   </button>
@@ -430,7 +436,14 @@ export default function WithdrawPage(props: { params: Promise<{ lang: string }> 
             {bonusStatus?.active && (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2 text-xs text-amber-800">
                 <p className="font-black">
-                  🔒 {isth ? `มีโบนัส $${bonusStatus.active.bonusUsd} — ต้องทำเงื่อนไขให้ครบจึงจะถอนได้` : `Bonus $${bonusStatus.active.bonusUsd} — complete the turnover to unlock withdrawals`}
+                  {isth
+                    ? `ถอนได้สูงสุด $${bonusStatus.withdrawableUsd} (ยอดในบัญชี $${bonusStatus.balanceUsd} หักโบนัส $${bonusStatus.bonusHeldUsd})`
+                    : `You can withdraw up to $${bonusStatus.withdrawableUsd} (balance minus bonus $${bonusStatus.bonusHeldUsd})`}
+                </p>
+                <p>
+                  🔒 {isth
+                    ? `โบนัส $${bonusStatus.active.bonusUsd} คงอยู่ในบัญชีและใช้เทรดต่อได้ ถอนได้เมื่อทำเงื่อนไขครบ — ถ้าถอนตอนนี้ เงื่อนไขโบนัสจะเริ่มนับใหม่`
+                    : `The $${bonusStatus.active.bonusUsd} bonus stays in your account for trading and unlocks once the turnover is met — withdrawing now restarts the turnover`}
                 </p>
                 {[
                   { done: bonusStatus.active.tradedLots, need: bonusStatus.active.requiredLots, unit: "lots" },
@@ -461,7 +474,7 @@ export default function WithdrawPage(props: { params: Promise<{ lang: string }> 
 
             <button
               type="submit"
-              disabled={submitting || !selectedAccount || !selectedBank || !bankAccNumber || !bankAccName || !amountUsd || !!bonusStatus?.active}
+              disabled={submitting || !selectedAccount || !selectedBank || !bankAccNumber || !bankAccName || !amountUsd}
               className="w-full bg-gradient-to-r from-slate-800 via-slate-900 to-slate-950 hover:brightness-125 text-white font-black py-4 rounded-2xl text-sm transition-all shadow-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-[#c6a87c]/20 active:scale-[0.99]"
             >
               {submitting ? (
