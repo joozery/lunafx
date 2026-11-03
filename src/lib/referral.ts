@@ -210,3 +210,62 @@ export async function payReferralCommission(db: Db, commissionId: ObjectId): Pro
   });
   return { ok: true };
 }
+
+/* ── Per-friend figures shown to the referrer and to admins ── */
+
+export interface FriendStats {
+  depositsUsd: number;     // approved deposits
+  withdrawalsUsd: number;  // pending + completed withdrawals (already taken out of the balance)
+  balanceUsd: number;      // live accounts' balance now
+  lostUsd: number;         // deposits − withdrawals − balance, when positive
+  profitUsd: number;       // the other way round, when positive
+  commissionPaidUsd: number;
+  commissionPendingUsd: number;
+}
+
+/** Money in, money out, what is left and the commission earned, per referred user. */
+export async function friendStats(db: Db, referrerId: ObjectId, friendIds: ObjectId[]): Promise<Map<string, FriendStats>> {
+  const out = new Map<string, FriendStats>();
+  if (friendIds.length === 0) return out;
+
+  const liveAccounts = await db.collection("accounts")
+    .find({ userId: { $in: friendIds }, isDemo: { $ne: true } }, { projection: { userId: 1, accountNumber: 1, balance: 1 } })
+    .toArray();
+  const liveNumbers = liveAccounts.map((a) => a.accountNumber);
+
+  const [money, commissions] = await Promise.all([
+    db.collection("transactions").aggregate([
+      { $match: {
+        userId: { $in: friendIds },
+        accountNumber: { $in: liveNumbers },
+        $or: [
+          { type: "deposit", status: "completed" },
+          { type: "withdrawal", status: { $in: ["pending", "completed"] } },
+        ],
+      } },
+      { $group: { _id: { u: "$userId", t: "$type" }, total: { $sum: "$amount" } } },
+    ]).toArray(),
+    db.collection("referralCommissions").aggregate([
+      { $match: { referrerId, referredUserId: { $in: friendIds }, status: { $in: ["paid", "pending"] } } },
+      { $group: { _id: { u: "$referredUserId", s: "$status" }, total: { $sum: "$amountUsd" } } },
+    ]).toArray(),
+  ]);
+
+  for (const id of friendIds) {
+    const key = id.toString();
+    const sumMoney = (t: string) => money.find((m) => m._id.u.toString() === key && m._id.t === t)?.total ?? 0;
+    const sumComm = (s: string) => commissions.find((c) => c._id.u.toString() === key && c._id.s === s)?.total ?? 0;
+    const depositsUsd = round2(sumMoney("deposit"));
+    const withdrawalsUsd = round2(Math.abs(sumMoney("withdrawal")));
+    const balanceUsd = round2(liveAccounts.filter((a) => a.userId.toString() === key).reduce((s, a) => s + (Number(a.balance) || 0), 0));
+    const result = round2(balanceUsd + withdrawalsUsd - depositsUsd);
+    out.set(key, {
+      depositsUsd, withdrawalsUsd, balanceUsd,
+      lostUsd: result < 0 ? -result : 0,
+      profitUsd: result > 0 ? result : 0,
+      commissionPaidUsd: round2(sumComm("paid")),
+      commissionPendingUsd: round2(sumComm("pending")),
+    });
+  }
+  return out;
+}

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { ObjectId, type Document } from "mongodb";
 import { requireAdmin } from "@/lib/adminAuth";
 import { getDb } from "@/lib/mongodb";
-import { payReferralCommission } from "@/lib/referral";
+import { friendStats, payReferralCommission } from "@/lib/referral";
 
 const fullName = (u: Document | null | undefined) =>
   u ? `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim() : "";
@@ -39,6 +39,12 @@ export async function GET() {
   const names = new Map((await db.collection("users").find({ _id: { $in: nameIds } }, { projection: { firstName: 1, lastName: 1, email: 1 } }).toArray())
     .map((u) => [u._id.toString(), { name: fullName(u), email: u.email }]));
 
+  const statsBy = new Map<string, Awaited<ReturnType<typeof friendStats>>>();
+  await Promise.all(referrers.map(async (r) => {
+    const mine = referred.filter((u) => u.referredBy.toString() === r._id.toString()).map((u) => u._id);
+    statsBy.set(r._id.toString(), await friendStats(db, r._id, mine));
+  }));
+
   return NextResponse.json({
     referrers: referrers.map((r) => {
       const id = r._id.toString();
@@ -57,6 +63,7 @@ export async function GET() {
           email: u.email,
           joinedAt: u.createdAt,
           depositsUsd: depositBy.get(u._id.toString()) ?? 0,
+          ...statsBy.get(id)?.get(u._id.toString()),
         })),
       };
     }).sort((a, b) => b.referred.length - a.referred.length),

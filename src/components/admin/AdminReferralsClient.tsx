@@ -11,7 +11,11 @@ interface Referrer {
   percent: number | null; // null = uses the default
   paidUsd: number;
   pendingUsd: number;
-  referred: { id: string; name: string; email: string; joinedAt: string; depositsUsd: number }[];
+  referred: {
+    id: string; name: string; email: string; joinedAt: string; depositsUsd: number;
+    withdrawalsUsd?: number; balanceUsd?: number; lostUsd?: number; profitUsd?: number;
+    commissionPaidUsd?: number; commissionPendingUsd?: number;
+  }[];
 }
 
 interface PendingCommission {
@@ -255,7 +259,7 @@ export function AdminReferralsClient() {
                           <table className="w-full text-xs">
                             <thead>
                               <tr className="text-left text-slate-400">
-                                {["ผู้ที่ถูกแนะนำ", "อีเมล", "สมัครเมื่อ", "ยอดฝากรวม"].map((h) => <th key={h} className="py-1.5 pr-4 font-semibold">{h}</th>)}
+                                {["ผู้ที่ถูกแนะนำ", "อีเมล", "สมัครเมื่อ", "ยอดฝากรวม", "ถอนรวม", "คงเหลือ", "เสียไป / กำไร", "ค่าคอม (จ่าย / รอ)"].map((h) => <th key={h} className="py-1.5 pr-4 font-semibold">{h}</th>)}
                               </tr>
                             </thead>
                             <tbody>
@@ -265,6 +269,12 @@ export function AdminReferralsClient() {
                                   <td className="py-1.5 pr-4 text-slate-500">{u.email}</td>
                                   <td className="py-1.5 pr-4 text-slate-500">{fmtDate(u.joinedAt)}</td>
                                   <td className="py-1.5 pr-4 font-mono">${u.depositsUsd.toFixed(2)}</td>
+                                  <td className="py-1.5 pr-4 font-mono">${(u.withdrawalsUsd ?? 0).toFixed(2)}</td>
+                                  <td className="py-1.5 pr-4 font-mono">${(u.balanceUsd ?? 0).toFixed(2)}</td>
+                                  <td className={`py-1.5 pr-4 font-mono font-bold ${(u.lostUsd ?? 0) > 0 ? "text-rose-600" : (u.profitUsd ?? 0) > 0 ? "text-emerald-600" : "text-slate-400"}`}>
+                                    {(u.lostUsd ?? 0) > 0 ? `−$${u.lostUsd!.toFixed(2)}` : (u.profitUsd ?? 0) > 0 ? `+$${u.profitUsd!.toFixed(2)}` : "$0.00"}
+                                  </td>
+                                  <td className="py-1.5 pr-4 font-mono">${(u.commissionPaidUsd ?? 0).toFixed(2)} / <span className="text-amber-600">${(u.commissionPendingUsd ?? 0).toFixed(2)}</span></td>
                                 </tr>
                               ))}
                             </tbody>
