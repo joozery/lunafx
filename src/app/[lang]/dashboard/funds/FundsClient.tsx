@@ -98,7 +98,7 @@ export function FundsClient({ lang }: { lang: string }) {
   const [slipPreview, setSlipPreview] = useState<string | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
-  const [success, setSuccess] = useState<{ txnId: string; autoApproved: boolean; slip2goStatus: string; bonusUsd: number } | null>(null);
+  const [success, setSuccess] = useState<{ txnId: string; autoApproved: boolean; slip2goStatus: string; bonusUsd: number; nameMismatch: boolean } | null>(null);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
@@ -183,10 +183,10 @@ export function FundsClient({ lang }: { lang: string }) {
       const res = await fetch("/api/deposit", { method: "POST", body: fd });
       const data = await readUploadResponse<{
         ok?: boolean; error?: string; slip2goCode?: string; transactionId: string;
-        autoApproved: boolean; slip2goStatus?: string; bonusUsd?: number;
+        autoApproved: boolean; slip2goStatus?: string; bonusUsd?: number; nameMismatch?: boolean;
       }>(res);
       if (data.ok) {
-        setSuccess({ txnId: data.transactionId, autoApproved: data.autoApproved, slip2goStatus: data.slip2goStatus ?? "unavailable", bonusUsd: data.bonusUsd ?? 0 });
+        setSuccess({ txnId: data.transactionId, autoApproved: data.autoApproved, slip2goStatus: data.slip2goStatus ?? "unavailable", bonusUsd: data.bonusUsd ?? 0, nameMismatch: Boolean(data.nameMismatch) });
         setAmountThb("");
         setSlip(null);
         setSlipPreview(null);
@@ -211,7 +211,7 @@ export function FundsClient({ lang }: { lang: string }) {
 
   /* ── SUCCESS STATE ── */
   if (success) {
-    const { txnId, autoApproved, slip2goStatus, bonusUsd } = success;
+    const { txnId, autoApproved, slip2goStatus, bonusUsd, nameMismatch } = success;
 
     const slip2goLabel: Record<string, { th: string; cls: string }> = {
       verified:    { th: "✓ Slip2Go ตรวจสอบผ่านแล้ว",               cls: "bg-emerald-50 border-emerald-200 text-emerald-700" },
@@ -220,7 +220,9 @@ export function FundsClient({ lang }: { lang: string }) {
       auth_error:  { th: "— ระบบตรวจสอบสลิปไม่พร้อมใช้งาน",           cls: "bg-slate-50 border-slate-200 text-slate-500" },
       bank_error:  { th: "⚠ ธนาคารขัดข้องชั่วคราว รอ admin ตรวจสอบ",  cls: "bg-slate-50 border-slate-200 text-slate-500" },
     };
-    const badge = slip2goLabel[slip2goStatus] ?? slip2goLabel.unavailable;
+    const badge = nameMismatch && slip2goStatus === "verified"
+      ? { th: "⚠ ชื่อผู้โอนไม่ตรงกับชื่อบัญชี — รอทีมงานตรวจสอบ", cls: "bg-amber-50 border-amber-200 text-amber-700" }
+      : slip2goLabel[slip2goStatus] ?? slip2goLabel.unavailable;
 
     return (
       <div className="max-w-lg mx-auto py-16 text-center space-y-5">

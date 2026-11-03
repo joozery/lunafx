@@ -13,6 +13,7 @@ import { getExchangeRate } from "@/lib/exchangeRate";
 import { grantDepositBonus } from "@/lib/bonus";
 import { recordReferralCommission } from "@/lib/referral";
 import { notifyAdmins, thaiTime } from "@/lib/lineNotify";
+import { slipNameCheck, type SlipNameResult } from "@/lib/slipName";
 
 const ALLOWED_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -60,6 +61,7 @@ export async function POST(req: NextRequest) {
   let slip2goStatus: Slip2GoStatus = "unavailable";
   let slip2goCode: string | undefined;
   let slip2goData: unknown;
+  let nameCheck: { result: SlipNameResult; slipName: string; userName: string } | null = null;
 
   if (process.env.SLIP2GO_SECRET) {
     const bankCode = bankSetting?.bankCode ?? "KBANK";
@@ -122,6 +124,18 @@ export async function POST(req: NextRequest) {
     }
 
     // not_found / bank_error / auth_error / unavailable → fall through to pending (manual review)
+
+    // Sender name vs. the customer's registered name. A mismatch (e.g. a relative paid) isn't
+    // rejected; it just isn't credited automatically and waits for an admin.
+    const slipName = result.data?.sender?.account?.name;
+    if (slipName) {
+      const user = await db.collection("users").findOne({ _id: new ObjectId(session.userId) }, { projection: { firstName: 1, lastName: 1 } });
+      nameCheck = {
+        result: slipNameCheck(slipName, user?.firstName, user?.lastName),
+        slipName,
+        userName: `${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim(),
+      };
+    }
   }
 
   /* ── Upload slip → R2 ── */
@@ -140,7 +154,8 @@ export async function POST(req: NextRequest) {
 
   // Only a slip Slip2Go confirmed is credited immediately. not_found can also mean a
   // fabricated slip, so it goes to manual review with the other non-verified states.
-  const autoApprove = slip2goStatus === "verified";
+  // A sender name that clearly isn't the customer's also goes to an admin.
+  const autoApprove = slip2goStatus === "verified" && nameCheck?.result !== "mismatch";
   const txStatus = autoApprove ? "completed" : "pending";
 
   const { insertedId: depositTxnId } = await db.collection("transactions").insertOne({
@@ -155,13 +170,15 @@ export async function POST(req: NextRequest) {
     slipKey,
     status:          txStatus,
     transactionId:   txnId,
-    adminNotes:      autoApprove ? "อนุมัติอัตโนมัติ (Slip2Go verified)" : "",
+    adminNotes:      autoApprove ? "อนุมัติอัตโนมัติ (Slip2Go verified)"
+      : nameCheck?.result === "mismatch" ? `ชื่อผู้โอนในสลิป (${nameCheck.slipName}) ไม่ตรงกับชื่อลูกค้า (${nameCheck.userName})` : "",
     slip2go: {
       status:  slip2goStatus,
       code:    slip2goCode ?? null,
       data:    slip2goData ?? null,
       checked: slip2goStatus !== "unavailable",
     },
+    nameCheck,
     createdAt:  new Date(),
     updatedAt:  new Date(),
   });
@@ -186,9 +203,14 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const statusLine = autoApprove
+  const nameLine = nameCheck
+    ? `\nชื่อผู้โอน: ${nameCheck.slipName} ${nameCheck.result === "match" ? "✅ ตรงกับลูกค้า" : nameCheck.result === "mismatch" ? `⚠️ ไม่ตรงกับลูกค้า (${nameCheck.userName})` : "❔ ตรวจไม่ได้ (ภาษาต่างกัน)"}`
+    : "";
+  const statusLine = (autoApprove
     ? "✅ อนุมัติอัตโนมัติ (Slip2Go ตรวจผ่าน)"
-    : `⏳ รอแอดมินตรวจสอบ (Slip2Go: ${slip2goStatus})`;
+    : nameCheck?.result === "mismatch" && slip2goStatus === "verified"
+      ? "⏳ รอแอดมินตรวจสอบ: สลิปถูกต้องแต่ชื่อผู้โอนไม่ตรง"
+      : `⏳ รอแอดมินตรวจสอบ (Slip2Go: ${slip2goStatus})`) + nameLine;
   void notifyAdmins(
     `💰 แจ้งฝากเงิน / ส่งสลิป\nลูกค้า: ${session.firstName} ${session.lastName ?? ""} (${session.email})\nบัญชีเทรด: #${accountNumber}\n` +
     `ยอด: ฿${amountThb.toLocaleString()} ≈ $${amountUsd}${bonusUsd > 0 ? ` (+โบนัส $${bonusUsd})` : ""}\n${statusLine}\nRef: ${txnId}\nสลิป: ${slipUrl}\nเวลา: ${thaiTime()}`,
@@ -200,6 +222,7 @@ export async function POST(req: NextRequest) {
     transactionId: txnId,
     slip2goStatus,
     autoApproved: autoApprove,
+    nameMismatch: nameCheck?.result === "mismatch",
     bonusUsd,
   });
 }
