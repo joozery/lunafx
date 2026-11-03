@@ -142,6 +142,14 @@ export function WebTraderClient({ lang }: { lang: string }) {
   const [closing, setClosing] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
 
+  /* ── Edit SL/TP (open position) or price/SL/TP (pending order) ── */
+  const [editing, setEditing] = useState<{ kind: "trade"; trade: Trade } | { kind: "order"; order: PendingOrder } | null>(null);
+  const [editEntry, setEditEntry] = useState("");
+  const [editSl, setEditSl] = useState("");
+  const [editTp, setEditTp] = useState("");
+  const [editError, setEditError] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
   /* ── Fetch accounts (also called after every open/close so balance stays in sync) ── */
   const fetchAccounts = useCallback(async () => {
     const d = await fetch("/api/accounts").then((r) => r.json());
@@ -330,6 +338,54 @@ export function WebTraderClient({ lang }: { lang: string }) {
       await fetchPositions();
     } finally {
       setCancelling(null);
+    }
+  };
+
+  /* ── Edit SL/TP ── */
+  const openEdit = (target: { kind: "trade"; trade: Trade } | { kind: "order"; order: PendingOrder }) => {
+    const item = target.kind === "trade" ? target.trade : target.order;
+    const digits = symOf(item.symbol).digits;
+    setEditing(target);
+    setEditEntry(target.kind === "order" ? target.order.entryPrice.toFixed(digits) : "");
+    setEditSl(item.sl != null ? item.sl.toFixed(digits) : "");
+    setEditTp(item.tp != null ? item.tp.toFixed(digits) : "");
+    setEditError("");
+  };
+
+  const saveEdit = async () => {
+    if (!editing || savingEdit) return;
+    const slN = editSl.trim() ? parseFloat(editSl) : null;
+    const tpN = editTp.trim() ? parseFloat(editTp) : null;
+    if ((slN !== null && !(slN > 0)) || (tpN !== null && !(tpN > 0))) {
+      setEditError(isth ? "SL/TP ต้องเป็นตัวเลขมากกว่า 0 หรือเว้นว่าง" : "SL/TP must be a positive number or empty");
+      return;
+    }
+    setSavingEdit(true);
+    setEditError("");
+    try {
+      const res = editing.kind === "trade"
+        ? await fetch("/api/trades", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "modify", tradeId: editing.trade.id, sl: slN, tp: tpN }),
+          })
+        : await fetch("/api/orders", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: editing.order.id, entryPrice: parseFloat(editEntry), sl: slN, tp: tpN }),
+          });
+      const d = await res.json();
+      if (!d.ok) {
+        setEditError(d.error ?? (isth ? "บันทึกไม่สำเร็จ" : "Save failed"));
+        return;
+      }
+      const sym = symOf(editing.kind === "trade" ? editing.trade.symbol : editing.order.symbol);
+      setOrderSuccess(`▲ ${isth ? "แก้ไข" : "Modified"} ${sym.label} · SL ${slN ?? "—"} · TP ${tpN ?? "—"}`);
+      setTimeout(() => setOrderSuccess(""), 5000);
+      setEditing(null);
+      await fetchPositions();
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -572,7 +628,10 @@ export function WebTraderClient({ lang }: { lang: string }) {
                               <div><p className="text-slate-500">TP</p><p className="font-mono mt-1 text-emerald-400">{o.tp != null ? fmtN(o.tp, sym.digits) : "—"}</p></div>
                               <div className="text-right"><p className="text-slate-500">{isth ? "ราคาตอนนี้" : "Market"}</p><p className="font-mono mt-1">{market != null ? fmtN(market, sym.digits) : "—"}</p></div>
                             </div>
-                            <button onClick={() => handleCancel(o)} disabled={cancelling !== null} className="min-h-11 w-full rounded-xl bg-slate-700 text-sm font-bold text-slate-200 active:bg-rose-900 disabled:opacity-40">{cancelling === o.id ? (isth ? "กำลังยกเลิก…" : "Cancelling…") : (isth ? "ยกเลิกคำสั่ง" : "Cancel order")}</button>
+                            <div className="flex gap-2">
+                            <button onClick={() => openEdit({ kind: "order", order: o })} className="min-h-11 flex-1 rounded-xl bg-slate-700/70 text-sm font-bold text-slate-200 active:bg-slate-600">{isth ? "แก้ไข" : "Edit"}</button>
+                            <button onClick={() => handleCancel(o)} disabled={cancelling !== null} className="min-h-11 flex-1 rounded-xl bg-slate-700 text-sm font-bold text-slate-200 active:bg-rose-900 disabled:opacity-40">{cancelling === o.id ? (isth ? "กำลังยกเลิก…" : "Cancelling…") : (isth ? "ยกเลิกคำสั่ง" : "Cancel order")}</button>
+                            </div>
                           </article>
                         );
                       })}
@@ -599,7 +658,13 @@ export function WebTraderClient({ lang }: { lang: string }) {
                               <td className="px-3 py-1.5 font-mono text-rose-400/80">{o.sl != null ? fmtN(o.sl, sym.digits) : "—"}</td>
                               <td className="px-3 py-1.5 font-mono text-emerald-400/80">{o.tp != null ? fmtN(o.tp, sym.digits) : "—"}</td>
                               <td className="px-3 py-1.5 font-mono text-slate-400">{market != null ? fmtN(market, sym.digits) : <span className="text-slate-700">···</span>}</td>
-                              <td className="px-3 py-1.5">
+                              <td className="px-3 py-1.5 whitespace-nowrap">
+                                <button
+                                  onClick={() => openEdit({ kind: "order", order: o })}
+                                  className="mr-1 px-2 py-0.5 text-[10px] font-bold bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors"
+                                >
+                                  Edit
+                                </button>
                                 <button
                                   onClick={() => handleCancel(o)}
                                   disabled={cancelling === o.id}
@@ -633,6 +698,13 @@ export function WebTraderClient({ lang }: { lang: string }) {
                         <div><p className="text-slate-500">{isth ? "ราคาเปิด" : "Open"}</p><p className="font-mono mt-1">{fmtN(trade.openPrice, sym.digits)}</p></div>
                         <div className="text-right"><p className="text-slate-500">{isOpen ? (isth ? "ราคาปิดปัจจุบัน" : "Current close") : (isth ? "ราคาปิด" : "Close")}</p><p className="font-mono mt-1">{current != null ? fmtN(current, sym.digits) : "—"}</p></div>
                       </div>
+                      {isOpen && (
+                        <div className="flex items-center justify-between gap-3 mb-3 text-xs">
+                          <p><span className="text-slate-500">SL </span><span className="font-mono text-rose-400">{trade.sl != null ? fmtN(trade.sl, sym.digits) : "—"}</span></p>
+                          <p><span className="text-slate-500">TP </span><span className="font-mono text-emerald-400">{trade.tp != null ? fmtN(trade.tp, sym.digits) : "—"}</span></p>
+                          <button onClick={() => openEdit({ kind: "trade", trade })} className="min-h-11 px-4 rounded-xl bg-slate-700/70 font-bold text-slate-200 active:bg-slate-600">{isth ? "แก้ SL/TP" : "Edit SL/TP"}</button>
+                        </div>
+                      )}
                       {isOpen ? <button onClick={() => handleClose(trade)} disabled={current == null || closing !== null} className="min-h-11 w-full rounded-xl bg-slate-700 text-sm font-bold text-slate-200 active:bg-rose-900 disabled:opacity-40">{closing === trade.id ? (isth ? "กำลังปิด…" : "Closing…") : (isth ? "ปิดออเดอร์" : "Close position")}</button> : <p className="text-xs text-slate-500">{trade.closeTime ? new Date(trade.closeTime).toLocaleString(isth ? "th-TH" : "en-US") : "—"}</p>}
                     </article>
                   );
@@ -649,7 +721,7 @@ export function WebTraderClient({ lang }: { lang: string }) {
                   <table className="hidden lg:table w-full text-xs">
                     <thead className="sticky top-0 bg-[#0f172a]">
                       <tr className="border-b border-slate-800 text-[10px] uppercase tracking-wider text-slate-600">
-                        {["Symbol", "Type", "Volume", "Open", "Current", "P&L", ""].map((h, i) => (
+                        {["Symbol", "Type", "Volume", "Open", "Current", "SL", "TP", "P&L", ""].map((h, i) => (
                           <th key={i} className="px-3 py-1.5 text-left font-semibold whitespace-nowrap">{h}</th>
                         ))}
                       </tr>
@@ -670,10 +742,18 @@ export function WebTraderClient({ lang }: { lang: string }) {
                             <td className="px-3 py-1.5 font-mono text-slate-300">
                               {cur ? fmtN(cur, sym.digits) : <span className="text-slate-700">···</span>}
                             </td>
+                            <td className="px-3 py-1.5 font-mono text-rose-400/80">{pos.sl != null ? fmtN(pos.sl, sym.digits) : "—"}</td>
+                            <td className="px-3 py-1.5 font-mono text-emerald-400/80">{pos.tp != null ? fmtN(pos.tp, sym.digits) : "—"}</td>
                             <td className={`px-3 py-1.5 font-bold font-mono ${pnl >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                               {pnl >= 0 ? "+" : ""}${fmtN(pnl)}
                             </td>
-                            <td className="px-3 py-1.5">
+                            <td className="px-3 py-1.5 whitespace-nowrap">
+                              <button
+                                onClick={() => openEdit({ kind: "trade", trade: pos })}
+                                className="mr-1 px-2 py-0.5 text-[10px] font-bold bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors"
+                              >
+                                Edit
+                              </button>
                               <button
                                 onClick={() => handleClose(pos)}
                                 disabled={!cur || closing === pos.id}
@@ -1005,6 +1085,64 @@ export function WebTraderClient({ lang }: { lang: string }) {
           </div>
         </div>
       </div>
+      {editing && (() => {
+        const item = editing.kind === "trade" ? editing.trade : editing.order;
+        const side = editing.kind === "trade" ? editing.trade.type : editing.order.side;
+        const sym = symOf(item.symbol);
+        const p = prices[item.symbol];
+        // open positions are judged at their closing price; pending orders against their entry price
+        const ref = editing.kind === "trade" ? (p ? (side === "buy" ? p.bid : p.ask) : undefined) : parseFloat(editEntry);
+        const refLabel = editing.kind === "trade" ? (side === "buy" ? "Bid" : "Ask") : (isth ? "ราคาเข้า" : "entry");
+        const editKind = editing.kind === "order" && p && Number.isFinite(ref) && (ref as number) > 0 ? pendingKind(side, ref as number, p) : null;
+        const inputCls = "w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-base lg:text-sm font-mono outline-none placeholder:text-slate-600";
+        return (
+          <div className="fixed inset-0 z-50 flex items-end lg:items-center justify-center bg-black/60 p-0 lg:p-4" onClick={() => !savingEdit && setEditing(null)}>
+            <div role="dialog" aria-modal="true" aria-label={isth ? "แก้ไขออเดอร์" : "Modify order"} onClick={(e) => e.stopPropagation()} className="w-full lg:max-w-sm rounded-t-2xl lg:rounded-2xl border border-slate-700 bg-[#0f172a] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-black text-[#e6cda3]">{sym.label}</p>
+                  <p className={`text-xs font-bold mt-0.5 ${side === "buy" ? "text-emerald-400" : "text-rose-400"}`}>
+                    {editing.kind === "trade" ? side.toUpperCase() : KIND_LABEL[editKind ?? editing.order.kind]} · {item.volume} lot
+                    {editing.kind === "trade" && <span className="text-slate-500 font-normal"> · {isth ? "เปิดที่" : "open"} {fmtN(editing.trade.openPrice, sym.digits)}</span>}
+                  </p>
+                </div>
+                <p className="text-right text-[11px] text-slate-500">
+                  {side === "buy" ? "Ask/Bid" : "Bid/Ask"}<br />
+                  <span className="font-mono text-slate-300">{p ? `${(side === "buy" ? p.ask : p.bid).toFixed(sym.digits)} / ${(side === "buy" ? p.bid : p.ask).toFixed(sym.digits)}` : "···"}</span>
+                </p>
+              </div>
+
+              {editing.kind === "order" && (
+                <label className="block">
+                  <span className="text-[11px] text-slate-500 font-bold">{isth ? "ราคาที่ต้องการเข้า" : "Entry Price"}</span>
+                  <input inputMode="decimal" type="number" step={sym.pip} value={editEntry} onChange={(e) => setEditEntry(e.target.value)} className={`${inputCls} mt-1 text-slate-200 focus:border-[#c6a87c]`} />
+                </label>
+              )}
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block">
+                  <span className="text-[11px] text-slate-500 font-bold">Stop Loss</span>
+                  <input inputMode="decimal" type="number" step={sym.pip} value={editSl} onChange={(e) => setEditSl(e.target.value)} placeholder={isth ? "ไม่ตั้ง" : "None"} className={`${inputCls} mt-1 text-rose-400 focus:border-rose-500`} />
+                </label>
+                <label className="block">
+                  <span className="text-[11px] text-slate-500 font-bold">Take Profit</span>
+                  <input inputMode="decimal" type="number" step={sym.pip} value={editTp} onChange={(e) => setEditTp(e.target.value)} placeholder={isth ? "ไม่ตั้ง" : "None"} className={`${inputCls} mt-1 text-emerald-400 focus:border-emerald-500`} />
+                </label>
+              </div>
+              <p className="text-[11px] text-slate-500 leading-snug">
+                {side === "buy"
+                  ? (isth ? `SL ต้องต่ำกว่า และ TP ต้องสูงกว่า ${refLabel}` : `SL below and TP above the ${refLabel}`)
+                  : (isth ? `SL ต้องสูงกว่า และ TP ต้องต่ำกว่า ${refLabel}` : `SL above and TP below the ${refLabel}`)}
+                {ref != null && Number.isFinite(ref) ? ` (${(ref as number).toFixed(sym.digits)})` : ""}
+                {isth ? " · เว้นว่างเพื่อยกเลิก SL/TP" : " · leave empty to remove"}              </p>
+              {editError && <p role="alert" className="text-xs font-bold text-amber-400">⚠ {editError}</p>}
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => setEditing(null)} disabled={savingEdit} className="min-h-11 flex-1 rounded-xl bg-slate-800 text-sm font-bold text-slate-300 hover:bg-slate-700 disabled:opacity-40">{isth ? "ยกเลิก" : "Cancel"}</button>
+                <button onClick={saveEdit} disabled={savingEdit} className="min-h-11 flex-1 rounded-xl bg-gradient-to-r from-[#c6a87c] to-[#997a49] text-sm font-black text-white hover:brightness-110 disabled:opacity-40">{savingEdit ? (isth ? "กำลังบันทึก…" : "Saving…") : (isth ? "บันทึก" : "Save")}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       <nav aria-label={isth ? "เมนูเทรด" : "Trading navigation"} className="lg:hidden grid grid-cols-4 shrink-0 border-t border-slate-700 bg-[#0f172a] pb-[env(safe-area-inset-bottom)]">
         {([
           { id: "markets", label: isth ? "ราคา" : "Markets", icon: List },

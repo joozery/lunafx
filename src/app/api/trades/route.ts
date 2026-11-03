@@ -6,7 +6,7 @@ import { getServerQuote } from "@/lib/quote";
 import { closeTrade, openTrade } from "@/lib/trading";
 import { copyOpen } from "@/lib/copyTrading";
 import { slTpHit } from "@/lib/risk";
-import { ObjectId } from "mongodb";
+import { ObjectId, type Db, type Document, type WithId } from "mongodb";
 
 export async function GET(req: NextRequest) {
   const session = await getSession();
@@ -135,6 +135,8 @@ export async function PATCH(req: NextRequest) {
   const trade = await trades.findOne({ _id: new ObjectId(tradeId), userId, status: "open" });
   if (!trade) return NextResponse.json({ ok: false, error: "not found" }, { status: 404 });
 
+  if (body?.action === "modify") return modifySlTp(db, trade, body);
+
   // Close at the server's own price: buy closes at bid, sell at ask. Any price from the browser is ignored.
   const quote = await getServerQuote(trade.symbol);
   if (!quote) return NextResponse.json({ ok: false, error: NO_PRICE }, { status: 503 });
@@ -144,4 +146,35 @@ export async function PATCH(req: NextRequest) {
   const { pnl, closePrice } = result;
 
   return NextResponse.json({ ok: true, pnl, closePrice });
+}
+
+/** Change (or clear) SL/TP on an open position. A master's change is applied to its followers' copies too. */
+async function modifySlTp(db: Db, trade: WithId<Document>, body: Record<string, unknown>) {
+  const sl = optionalPrice(body.sl);
+  const tp = optionalPrice(body.tp);
+  if (sl === undefined || tp === undefined) {
+    return NextResponse.json({ ok: false, error: "invalid SL/TP" }, { status: 400 });
+  }
+
+  const quote = await getServerQuote(trade.symbol);
+  if (!quote) return NextResponse.json({ ok: false, error: NO_PRICE }, { status: 503 });
+
+  // Same rule as opening: a level already on the wrong side of the market would close it immediately
+  if (slTpHit(trade.type, sl, tp, quote)) {
+    const msg = trade.type === "buy"
+      ? `ออเดอร์ Buy: SL ต้องต่ำกว่า ${quote.bid} และ TP ต้องสูงกว่า ${quote.bid}`
+      : `ออเดอร์ Sell: SL ต้องสูงกว่า ${quote.ask} และ TP ต้องต่ำกว่า ${quote.ask}`;
+    return NextResponse.json({ ok: false, error: msg }, { status: 400 });
+  }
+
+  const r = await db.collection("trades").updateOne({ _id: trade._id, status: "open" }, { $set: { sl, tp } });
+  if (r.matchedCount === 0) return NextResponse.json({ ok: false, error: "ออเดอร์ถูกปิดไปแล้ว" }, { status: 409 });
+
+  // Copies were opened with the master's SL/TP; keep them in step
+  if (!trade.copy) {
+    await db.collection("trades").updateMany({ "copy.masterTradeId": trade._id, status: "open" }, { $set: { sl, tp } })
+      .catch((e) => console.error("[copy] sl/tp sync:", e));
+  }
+
+  return NextResponse.json({ ok: true, sl, tp });
 }

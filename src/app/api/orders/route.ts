@@ -127,6 +127,47 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true, order: serialize(doc) });
 }
 
+/** Change a waiting pending order's price, SL or TP. Limit/stop is re-derived from the new price. */
+export async function PATCH(req: NextRequest) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ ok: false }, { status: 401 });
+
+  const body = await req.json().catch(() => null);
+  const id = body?.id;
+  if (typeof id !== "string" || !ObjectId.isValid(id)) return NextResponse.json({ ok: false, error: "invalid order" }, { status: 400 });
+
+  const db = await getDb();
+  const col = db.collection<PendingOrderDoc>(PENDING_COLLECTION);
+  const order = await col.findOne({ _id: new ObjectId(id), userId: new ObjectId(session.userId), status: "pending" });
+  if (!order) return NextResponse.json({ ok: false, error: "ไม่พบคำสั่ง หรือคำสั่งถูกเปิดไปแล้ว" }, { status: 404 });
+
+  const entry = optionalPrice(body?.entryPrice);
+  if (!entry) return NextResponse.json({ ok: false, error: "กรุณาใส่ราคาที่ต้องการเข้าออเดอร์" }, { status: 400 });
+  const sl = optionalPrice(body?.sl);
+  const tp = optionalPrice(body?.tp);
+  if (sl === undefined || tp === undefined) return NextResponse.json({ ok: false, error: "invalid SL/TP" }, { status: 400 });
+  if (!slTpValidForEntry(order.side, sl, tp, entry)) {
+    const msg = order.side === "buy"
+      ? `คำสั่ง Buy: SL ต้องต่ำกว่า ${entry} และ TP ต้องสูงกว่า ${entry}`
+      : `คำสั่ง Sell: SL ต้องสูงกว่า ${entry} และ TP ต้องต่ำกว่า ${entry}`;
+    return NextResponse.json({ ok: false, error: msg }, { status: 400 });
+  }
+
+  const quote = await getServerQuote(order.symbol);
+  if (!quote) return NextResponse.json({ ok: false, error: NO_PRICE }, { status: 503 });
+  const kind = pendingKind(order.side, entry, quote);
+  if (!kind) return NextResponse.json({ ok: false, error: "ราคานี้เท่ากับราคาตลาด ให้เปิดออเดอร์แบบทันทีแทน" }, { status: 400 });
+
+  // Only while still waiting: a fill in between wins
+  const updated = await col.findOneAndUpdate(
+    { _id: order._id, status: "pending" },
+    { $set: { entryPrice: entry, sl, tp, kind } },
+    { returnDocument: "after" },
+  );
+  if (!updated) return NextResponse.json({ ok: false, error: "คำสั่งถูกเปิดไปแล้ว" }, { status: 409 });
+  return NextResponse.json({ ok: true, order: serialize(updated) });
+}
+
 /** Cancel one of the user's waiting pending orders. */
 export async function DELETE(req: NextRequest) {
   const session = await getSession();
