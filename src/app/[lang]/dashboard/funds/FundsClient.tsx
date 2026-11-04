@@ -8,7 +8,7 @@ import { calcBonus, requiredLots, type BonusSetting } from "@/lib/bonusRules";
 import { readUploadResponse, shrinkImage } from "@/lib/upload-client";
 import {
   Upload, CheckCircle2, Clock, AlertCircle, Copy, Building2,
-  ChevronDown, X, ImageIcon, History, ArrowDownToLine, RefreshCw, QrCode,
+  ChevronDown, X, ImageIcon, History, ArrowDownToLine, ArrowUpFromLine, RefreshCw, QrCode,
 } from "lucide-react";
 
 interface TradingAccount {
@@ -287,7 +287,12 @@ export function FundsClient({ lang }: { lang: string }) {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <Link href={`/${lang}/dashboard/funds/transfer`}
+              className="inline-flex items-center justify-center gap-2 px-5 py-4 rounded-2xl text-sm font-bold bg-gradient-to-r from-[#c6a87c] to-[#997a49] text-white shadow-lg hover:opacity-90 transition-opacity">
+              <ArrowUpFromLine className="w-4 h-4" />
+              {isth ? "ถอนเงิน" : "Withdraw"}
+            </Link>
             <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-4 text-center min-w-[140px]">
               <span className="text-[10px] text-slate-300 font-bold uppercase tracking-wider block">{isth ? "อัตราแลกเปลี่ยน" : "Exchange Rate"}</span>
               <span className="text-lg font-black font-mono text-[#e6cda3] mt-0.5 block">1 USD = ฿{THB_RATE}</span>

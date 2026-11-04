@@ -68,8 +68,8 @@ export function DashboardSidebar({ lang, user, variant = "desktop" }: { lang: st
           label: isth ? "การเงิน" : "Funds", 
           icon: Wallet,
           subItems: [
-            { href: `/${lang}/dashboard/funds`, label: isth ? "ฝาก / ถอนเงิน" : "Deposit / Withdrawal" },
-            { href: `/${lang}/dashboard/funds/transfer`, label: isth ? "โอนเงินระหว่างบัญชี" : "Internal Transfer" },
+            { href: `/${lang}/dashboard/funds`, label: isth ? "ฝากเงิน" : "Deposit" },
+            { href: `/${lang}/dashboard/funds/transfer`, label: isth ? "ถอนเงิน" : "Withdrawal" },
             { href: `/${lang}/dashboard/history`, label: isth ? "ประวัติธุรกรรม" : "Transaction History" },
           ]
         },
