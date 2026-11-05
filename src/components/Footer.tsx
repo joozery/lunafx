@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, Minimize, CircleSlash, ArrowRightLeft, ShieldAlert } from "lucide-react";
+import { ArrowRight, Minimize, CircleSlash, ArrowRightLeft, ShieldAlert, MessageCircle } from "lucide-react";
 import type { Dictionary, Locale } from "@/dictionaries";
 
 const socialIcons = [
@@ -122,6 +122,16 @@ export function Footer({ dict, lang }: { dict: Dictionary; lang: Locale }) {
               {footer.about}
             </p>
             <div className="flex items-center gap-3">
+              <a
+                href="https://lin.ee/pofOR85"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={lang === "th" ? "ติดต่อเราทาง LINE" : "Contact us on LINE"}
+                className="h-9 px-3 rounded-full border border-white/20 flex items-center justify-center gap-2 hover:border-[#06C755] hover:text-[#06C755] transition-colors text-xs font-semibold"
+              >
+                <MessageCircle className="w-4 h-4" />
+                LINE
+              </a>
               {socialIcons.map((social) => (
                 <a key={social.name} href="#" className="w-9 h-9 rounded-full border border-white/20 flex items-center justify-center hover:border-[#c6a87c] hover:text-[#c6a87c] transition-colors">
                   {social.svg}

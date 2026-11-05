@@ -143,7 +143,26 @@ export function SupportClient({ lang }: SupportClientProps) {
       </div>
 
       {/* ── COMPACT QUICK CONTACT STRIP ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="bg-white border border-slate-200/90 rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-2xs hover:border-[#06C755] transition-all">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-xl flex items-center justify-center shrink-0">
+              <MessageCircle className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="font-bold text-slate-900 text-xs">{isth ? "ติดต่อทาง LINE" : "LINE Support"}</p>
+              <p className="text-[10px] text-slate-400">{isth ? "เพิ่มเพื่อนเพื่อสอบถาม" : "Add us for assistance"}</p>
+            </div>
+          </div>
+          <a
+            href="https://lin.ee/pofOR85"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold px-3 py-1.5 rounded-lg text-[11px] transition-colors shrink-0"
+          >
+            {isth ? "เพิ่มเพื่อน" : "Add LINE"}
+          </a>
+        </div>
         {/* Live Chat / Ticket */}
         <div className="bg-white border border-slate-200/90 rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-2xs hover:border-[#c6a87c] transition-all">
           <div className="flex items-center gap-3">
