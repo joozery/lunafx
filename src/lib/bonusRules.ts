@@ -103,6 +103,16 @@ export function withdrawBreakdown(balanceUsd: number, activeBonusUsd: number, ca
 }
 
 /**
+ * Withdrawing everything the customer may take out (all of their own money) while a bonus is
+ * still held ends the bonus too: it is removed from the account. A partial withdrawal leaves
+ * the bonus, and the rest of the balance, in place. One cent of slack covers "withdraw all"
+ * amounts that were floored to 2 decimals.
+ */
+export function withdrawalForfeitsBonus(amountUsd: number, b: { bonusHeldUsd: number; withdrawableUsd: number }): boolean {
+  return b.bonusHeldUsd > 0 && amountUsd >= round2(b.withdrawableUsd - 0.01);
+}
+
+/**
  * A new deposit bonus replaces an active one instead of stacking. The old bonus comes back out
  * of the account, but never more than the account held before this deposit was credited.
  */

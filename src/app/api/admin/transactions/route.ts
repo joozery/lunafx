@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { bonusWithdrawSummary, grantDepositBonus, WITHDRAW_ATTEMPTS, type BonusWithdrawSummary } from "@/lib/bonus";
+import { bonusWithdrawSummary, grantDepositBonus, restoreBonusesForRejectedWithdrawal, WITHDRAW_ATTEMPTS, type BonusWithdrawSummary } from "@/lib/bonus";
 import { recordReferralCommission } from "@/lib/referral";
 import { requireAdmin } from "@/lib/adminAuth";
 import { getDb } from "@/lib/mongodb";
@@ -131,11 +131,13 @@ export async function PATCH(req: NextRequest) {
   }
 
   /* ปฏิเสธถอน → คืนยอดให้ user (ยอดถูกหักไปแล้วตอนส่งคำขอ) */
-  if (status === "failed" && txn.type === "withdrawal" && txn.accountNumber && txn.amount > 0) {
+  if (status === "failed" && txn.type === "withdrawal" && txn.accountNumber && txn.amount > 0 && txn.status !== "failed") {
     await db.collection("accounts").updateOne(
       { accountNumber: txn.accountNumber },
       { $inc: { balance: txn.amount, equity: txn.amount, freeMargin: txn.amount } }
     );
+    // A full withdrawal took the bonus out with it: put it back and reactivate it
+    await restoreBonusesForRejectedWithdrawal(db, txn).catch((e) => console.error("[admin/txn] bonus restore failed:", e));
   }
 
   return NextResponse.json({ ok: true });

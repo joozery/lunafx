@@ -1,7 +1,7 @@
 "use client";
 
 import { use, useState, useEffect } from "react";
-import type { BonusStatus } from "@/lib/bonusRules";
+import { withdrawalForfeitsBonus, type BonusStatus } from "@/lib/bonusRules";
 import { hasLocale, type Locale } from "@/dictionaries";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -444,6 +444,11 @@ export default function WithdrawPage(props: { params: Promise<{ lang: string }> 
                   🔒 {isth
                     ? `โบนัส $${bonusStatus.active.bonusUsd} คงอยู่ในบัญชีและใช้เทรดต่อได้ ถอนได้เมื่อทำเงื่อนไขครบ — ถ้าถอนตอนนี้ เงื่อนไขโบนัสจะเริ่มนับใหม่`
                     : `The $${bonusStatus.active.bonusUsd} bonus stays in your account for trading and unlocks once the turnover is met — withdrawing now restarts the turnover`}
+                </p>
+                <p className={amountUsd && withdrawalForfeitsBonus(parseFloat(amountUsd), bonusStatus) ? "font-black text-red-600" : ""}>
+                  ⚠️ {isth
+                    ? `ถ้าถอนทั้งหมด ($${bonusStatus.withdrawableUsd}) โบนัส $${bonusStatus.bonusHeldUsd} จะถูกตัดออกจากบัญชีด้วย — ถ้าถอนบางส่วน โบนัสและยอดที่เหลือยังอยู่ในบัญชี`
+                    : `Withdrawing everything ($${bonusStatus.withdrawableUsd}) also removes the $${bonusStatus.bonusHeldUsd} bonus — a partial withdrawal keeps the bonus and the rest of your balance`}
                 </p>
                 {[
                   { done: bonusStatus.active.tradedLots, need: bonusStatus.active.requiredLots, unit: "lots" },

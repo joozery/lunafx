@@ -19,6 +19,8 @@ const METHOD_LABELS: Record<string, string> = {
   manual: "Manual",
   manual_bonus: "Manual",
   bonus_replaced: "แทนที่ด้วยโบนัสรอบใหม่",
+  bonus_forfeited: "ตัดโบนัส (ถอนเงินทั้งหมด)",
+  bonus_restored: "คืนโบนัส (คำขอถอนถูกปฏิเสธ)",
   card: "Credit / Debit Card",
   bank: "Bank Transfer",
   wallet: "E-Wallet",

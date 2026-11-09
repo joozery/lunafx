@@ -222,6 +222,46 @@ export async function bonusWithdrawSummary(db: Db, account: WithId<Document>): P
   };
 }
 
+/** A full withdrawal ends the active bonuses; they are tied to that withdrawal so a rejection can bring them back. */
+export async function forfeitBonusesForWithdrawal(db: Db, accountIdStr: string, withdrawalTxnId: string) {
+  await db.collection("bonuses").updateMany(
+    { accountId: accountIdStr, status: "active" },
+    { $set: { status: "forfeited", forfeitedAt: new Date(), forfeitReason: "full_withdrawal", forfeitWithdrawalTxnId: withdrawalTxnId } },
+  );
+}
+
+/** Admin rejected a full withdrawal: its bonus goes back into the account and becomes active again. */
+export async function restoreBonusesForRejectedWithdrawal(db: Db, withdrawalTxn: WithId<Document>) {
+  const amount = Number(withdrawalTxn.bonusForfeitedUsd) || 0;
+  if (!(amount > 0) || !withdrawalTxn.accountNumber || !withdrawalTxn.transactionId) return;
+
+  const restored = await db.collection("bonuses").updateMany(
+    { forfeitWithdrawalTxnId: withdrawalTxn.transactionId, status: "forfeited" },
+    {
+      $set: { status: "active", countFrom: new Date(), restoredAt: new Date() },
+      $unset: { forfeitedAt: "", forfeitReason: "", forfeitWithdrawalTxnId: "" },
+    },
+  );
+  if (restored.modifiedCount === 0) return; // already restored, or replaced since
+
+  await db.collection("accounts").updateOne(
+    { accountNumber: withdrawalTxn.accountNumber, isDemo: { $ne: true } },
+    { $inc: { balance: amount, equity: amount, freeMargin: amount } },
+  );
+  await db.collection("transactions").insertOne({
+    userId: withdrawalTxn.userId,
+    type: "bonus",
+    method: "bonus_restored",
+    accountNumber: withdrawalTxn.accountNumber,
+    amount,
+    status: "completed",
+    transactionId: `BRS-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+    adminNotes: `คืนโบนัส (คำขอถอน ${withdrawalTxn.transactionId} ถูกปฏิเสธ)`,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+}
+
 /** A withdrawal while a bonus is active restarts that bonus's turnover from now. */
 export async function restartBonusTurnover(db: Db, accountIdStr: string, withdrawalTxnId: string) {
   await db.collection("bonuses").updateMany(

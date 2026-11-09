@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { getDb } from "@/lib/mongodb";
 import { getExchangeRate } from "@/lib/exchangeRate";
-import { bonusWithdrawSummary, recordBlockedWithdrawal, restartBonusTurnover } from "@/lib/bonus";
+import { bonusWithdrawSummary, forfeitBonusesForWithdrawal, recordBlockedWithdrawal, restartBonusTurnover } from "@/lib/bonus";
+import { withdrawalForfeitsBonus } from "@/lib/bonusRules";
 import { notifyAdmins, thaiTime } from "@/lib/lineNotify";
 import { ObjectId } from "mongodb";
 
@@ -72,10 +73,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: blocked.message }, { status: 400 });
   }
 
+  /* ถอนหมด (เอาเงินตัวเองออกทั้งหมด) → โบนัสหายไปด้วย; ถอนบางส่วน → โบนัสและยอดที่เหลือคงอยู่ในบัญชี */
+  const bonusForfeitedUsd = withdrawalForfeitsBonus(amountUsd, bonus) ? bonus.bonusHeldUsd : 0;
+  const debit = Math.round((amountUsd + bonusForfeitedUsd) * 100) / 100;
+
   /* ล็อคยอด (หักจาก balance ทันทีเพื่อกันถอนซ้ำ) — atomic: balance ต้องยังพอสำหรับยอดถอน + โบนัสที่คงไว้ */
   const locked = await db.collection("accounts").updateOne(
     { _id: account._id, balance: { $gte: amountUsd + bonus.bonusHeldUsd } },
-    { $inc: { balance: -amountUsd, equity: -amountUsd, freeMargin: -amountUsd } }
+    { $inc: { balance: -debit, equity: -debit, freeMargin: -debit } }
   );
   if (locked.modifiedCount === 0) return NextResponse.json({ error: "ยอดคงเหลือไม่เพียงพอ กรุณาลองใหม่" }, { status: 400 });
 
@@ -103,24 +108,45 @@ export async function POST(req: NextRequest) {
           bonusHeldUsd: bonus.bonusHeldUsd,      // โบนัสที่หักไว้ (คงอยู่ในบัญชี)
           withdrawableUsd: bonus.withdrawableUsd, // ถอนได้สูงสุดตอนนั้น
           amountUsd,                             // ยอดถอนจริง
-          turnoverRestarted: Boolean(bonus.active),
+          turnoverRestarted: Boolean(bonus.active) && bonusForfeitedUsd === 0,
+          bonusForfeitedUsd,
         }
       : null,
+    bonusForfeitedUsd, // removed from the account with this withdrawal; given back if it is rejected
     createdAt: new Date(),
     updatedAt: new Date(),
   });
 
-  // A bonus still owing turnover stays in the account; withdrawing restarts its conditions from now
-  if (bonus.active) await restartBonusTurnover(db, account._id.toString(), txnId).catch((e) => console.error("[withdraw] restart turnover failed:", e));
+  if (bonusForfeitedUsd > 0) {
+    // Full withdrawal: the bonus leaves the account too
+    await forfeitBonusesForWithdrawal(db, account._id.toString(), txnId).catch((e) => console.error("[withdraw] forfeit bonus failed:", e));
+    await db.collection("transactions").insertOne({
+      userId: new ObjectId(session.userId),
+      type: "bonus",
+      method: "bonus_forfeited",
+      accountNumber,
+      amount: -bonusForfeitedUsd,
+      status: "completed",
+      transactionId: `BFF-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+      adminNotes: `โบนัสหมดสิทธิ์ (ถอนเงินทั้งหมด ${txnId})`,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  } else if (bonus.active) {
+    // A bonus still owing turnover stays in the account; withdrawing restarts its conditions from now
+    await restartBonusTurnover(db, account._id.toString(), txnId).catch((e) => console.error("[withdraw] restart turnover failed:", e));
+  }
 
-  const bonusLine = bonus.bonusHeldUsd > 0
-    ? `ยอดในบัญชี: $${bonus.balanceUsd} · หักโบนัสคงไว้: $${bonus.bonusHeldUsd} · ถอนได้สูงสุด: $${bonus.withdrawableUsd}\n`
-    : "";
+  const bonusLine = bonusForfeitedUsd > 0
+    ? `ถอนทั้งหมด → ตัดโบนัสออก: $${bonusForfeitedUsd}\n`
+    : bonus.bonusHeldUsd > 0
+      ? `ยอดในบัญชี: $${bonus.balanceUsd} · หักโบนัสคงไว้: $${bonus.bonusHeldUsd} · ถอนได้สูงสุด: $${bonus.withdrawableUsd}\n`
+      : "";
   void notifyAdmins(
     `🏧 คำขอถอนเงิน\nลูกค้า: ${session.firstName} ${session.lastName ?? ""} (${session.email})\nบัญชีเทรด: #${accountNumber}\n` +
     `ยอด: $${amountUsd} ≈ ฿${amountThb.toLocaleString()}\n${bonusLine}โอนเข้า: ${bankName} ${bankAccountNumber} (${bankAccountName})\nRef: ${txnId}\nเวลา: ${thaiTime()}`,
     "withdraw",
   );
 
-  return NextResponse.json({ ok: true, transactionId: txnId });
+  return NextResponse.json({ ok: true, transactionId: txnId, bonusForfeitedUsd });
 }
